@@ -124,7 +124,12 @@ The dashboard retains the original update rate. Interpolation adds approximately
 one original frame of visual delay. See [ENHANCED.md](ENHANCED.md) for details.
 Local diagnostic captures and original game data are not published.
 
-## Credits
+## Contributors and credits
+
+- **[SledgeHV](https://github.com/SledgeHV)** — Sane Edition direction, gameplay
+  feedback and playtesting.
+- **Codex (OpenAI)** — AI coding assistance with SE implementation, debugging,
+  automated testing, documentation and release packaging.
 
 The original reverse engineering and SDL3 port are by
 [kylofon](https://github.com/kylofon/street-rod-2-sdl3). This fork builds on that work;
