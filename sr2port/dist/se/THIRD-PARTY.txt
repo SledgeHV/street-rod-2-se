@@ -1,0 +1,27 @@
+Street Rod 2 SE v1.0.0 - bundled components
+
+Street Rod 2 SE.exe
+  Port and SE code: MIT, see ../LICENSE.
+  https://github.com/SledgeHV/street-rod-2-se
+  Based on https://github.com/kylofon/street-rod-2-sdl3
+
+Nuked-OPL3 (linked into Street Rod 2 SE.exe)
+  Copyright (C) 2013-2020 Nuke.YKT. GNU LGPL 2.1 or later.
+  See Nuked-OPL3-LICENSE.txt.
+  https://github.com/nukeykt/Nuked-OPL3
+  Version: commit 765ec962e473aeb767e4cba74ffdc8f588ffbfe8 (unmodified).
+  Full matching port/application and library source plus build scripts:
+  https://github.com/SledgeHV/street-rod-2-se/releases/tag/v1.0.0
+  Download street-rod-2-se-v1.0.0-source.zip. The library source is under
+  sr2port/third_party/nuked-opl3. Rebuild with build-enhanced.ps1 or CMake
+  as documented in README.md; you can modify and relink the library.
+
+SDL3.dll
+  SDL 3.4.20, official x86_64-w64-mingw32 development package.
+  Copyright (C) 1997-2026 Sam Lantinga and contributors.
+  zlib license, see SDL3-LICENSE.txt.
+  https://github.com/libsdl-org/SDL/releases/tag/release-3.4.20
+  Unmodified DLL; you may replace it with a compatible build.
+
+No other non-system DLLs are required by this package.
+Original Street Rod 2 game data is not included.

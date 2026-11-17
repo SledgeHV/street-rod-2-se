@@ -9,6 +9,20 @@ Mulholland race. There are no high-resolution replacement graphics.
 **You need your own original game files.** They are not included in this repository.
 Podrobný český popis změn a nastavení: **[ENHANCED.md](ENHANCED.md)**.
 
+## Download and play (Windows 64-bit)
+
+Download **[Street Rod 2 SE v1.0.0](https://github.com/SledgeHV/street-rod-2-se/releases/tag/v1.0.0)**
+and extract `street-rod-2-se-v1.0.0-win64.zip` to a writable folder.
+Copy your installed original Street Rod 2 files into the included **`Game`**
+folder, next to `Street Rod 2 SE.exe`, then run **`Play SE.cmd`**.
+SDL3 is included; no separate installation or DOSBox is needed.
+
+The files must be directly inside `Game`, not inside another subfolder:
+`SR.EXE` (or `SR2.EXE`), `LIB1`, `LIB2`, `LIB3`, `SR2_DATA`, `SR2_SHP`,
+`SR2_END`, `MSR.SND` and all original `*.MUS` music files.
+See the included `README.txt` for Czech and English instructions.
+The original DOS executable is read as game data; start the SE program instead.
+
 ## SE improvements
 
 - **60 FPS driving by default**, configurable from 30 to 240 FPS. Additional
@@ -72,6 +86,11 @@ Alternatively, supply your compiler and SDL3 SDK paths to the standalone build s
 
 The script produces `build/sr2-enhanced.exe`; CMake produces `sr2port` (or
 `sr2port.exe`). The Windows scripts recognize either name in `build/`.
+To build the Windows release package, run
+`./build-enhanced.ps1 -Test -Output build/sr2-se-release.exe`, then
+`python sr2port/tools/package_se.py` (use `--toolchain` and `--sdl` for custom SDK
+locations). The packager checks DLL dependencies and includes only the executable,
+SDL3, launch scripts, instructions and licenses; it never packages original game data.
 Examples after a CMake build:
 
 ```sh
@@ -87,7 +106,9 @@ Examples after a CMake build:
 
 Classic still includes the audio fixes and reduced random transmission failure
 rate; it is not a bit-for-bit restoration of upstream game logic.
-Save games are written to the working directory. Original game data is not modified.
+Save games and the hall of fame are read and written in the selected game-data
+directory (`Game` in the Windows release), so that directory must be writable.
+The original program and resource files are not modified.
 
 ## Validation and current limits
 

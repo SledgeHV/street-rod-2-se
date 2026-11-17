@@ -24,6 +24,8 @@ remove it when it is done; subtasks marked `U<n> pending` are added automaticall
 
 ## Status
 
+- **SE fork (2026-11-17):** Windows v1.0.0 package prepared and validated with a clean build, regression tests and extracted-package SE/Classic startup checks. Release instructions and packaging script: `sr2port/dist/se/`, `sr2port/tools/package_se.py`. Publication: https://github.com/SledgeHV/street-rod-2-se/releases/tag/v1.0.0. Upstream status below is retained as historical context.
+
 - **Done:** S0.1 (repo), S1.1–S1.4 (unpacked, indexed, matched with SR1, Ghidra: `port/RE_GUIDE.md` §1–2); S1.5 (what changed, `RE_GUIDE.md` §3); S2.3, S2.5 (`FORMATS.md`); S2.1, S2.2, S2.4 waiting for your U5 checks. Phase 3: all delta specs (`port/spec/*.md`, 913/913 functions, `tools/sr2_coverage.py`).
 - **Next:** v0.1.0 is published (https://github.com/kylofon/street-rod-2-sdl3/releases/tag/v0.1.0). Your playtests (User to-do) → S5.6 fix batch(es) → v0.1.x patch release. When the playtests pass, the faithful port is finished and the Enhanced repo can start (game-port-setup mode B).
 - Escalation rule: a subtask that fails twice on Sonnet → new Opus session with a 5-line note
