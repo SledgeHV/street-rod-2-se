@@ -8,6 +8,7 @@
  * DS:96A8 yaw, DS:96AA cursor, DS:96AC yaw step. 16-bit arithmetic (idiv / imul low word). */
 #include "game/race_int.h"
 #include "game/race.h"
+#include "enhanced/enhanced.h"
 
 #include "platform/platform.h"
 
@@ -265,6 +266,17 @@ void track_build_course(s16 arg)
                 TRKS(HGT_, s) = (s16)(TRKS(HGT_, s - 1) + DSS((u16)(DS_course_height_deltas + 2 * ((i - 0x17C) / 10))));
             else
                 TRKS(HGT_, s) = TRKS(HGT_, s - 1);
+        }
+    }
+    if (enh_enabled) {
+        /* Flatten only the longitudinal Mulholland profile, about its entry
+         * height. Scale the freshly generated result once, not each delta:
+         * repeated rebuilds/loads must not flatten it further or drift.
+         * BL/BR cliffs, yaw, town, drag and Aqueduct keep their own profiles. */
+        s32 base = TRKS(HGT_, 0x17B);
+        for (s16 s = 0x17C; s < 0x3DE; ++s) {
+            s32 delta = (TRKS(HGT_, s) - base) * ENH_MULHOLLAND_HEIGHT_PERCENT;
+            TRKS(HGT_, s) = (s16)(base + (delta + (delta < 0 ? -50 : 50)) / 100);
         }
     }
     for (; POS < 0x3DE; POS++) TRKS(YAW_, POS) = YAWB;

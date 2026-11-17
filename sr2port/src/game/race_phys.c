@@ -1,3 +1,4 @@
+#include "enhanced/enhanced.h"
 /* Race: car set-up (integer), the player physics step of the race ISR, the opponent AI, police, track progress,
  * the race start (port/spec/race.md §3, §4; checked against the decompile / disassembly).
  *
@@ -311,7 +312,13 @@ wear:;
 void race_phys_step(void)
 {
     const u16 p = PLAYER;
+    if (enh_recovery_tick()) {
+        PHW(p, PH_STEPS)++; /* three seconds lost while the opponent keeps racing */
+        return;
+    }
     bool shift = 0, brake = 0, steer = 0, gas = 0;
+    int easy_direction = 0;
+    bool easy = enh_easy_controls && DSB(DS_racing);
     bool robot = DSW(DS_demo) != 0 || DSW(DS_auto_drive) != 0;
     if (DSW(DS_kbd_dir_lock) == 0 && DSW(DS_demo) == 0) {
         s16 kx = DSC(DS_kbd_dir_x);
@@ -327,7 +334,7 @@ void race_phys_step(void)
             if (jy < DSS(DS_joy_thr_y_lo)) { gas = 1; DSW(DS_cursor_y)--; }
             else if (jy > DSS(DS_joy_thr_y_hi)) { brake = 1; DSW(DS_cursor_y)++; }
         }
-        if (DSB(DS_mouse_present)) {
+        if (DSB(DS_mouse_present) && !easy) {
             mouse_poll();
             if (DSS(DS_mouse_dy) > 0) { DSW(DS_cursor_y)++; brake = 1; }
             s16 mx = DSS(DS_mouse_dx);
@@ -340,6 +347,10 @@ void race_phys_step(void)
     if (DSB(DS_click_edge) != 0) { shift = 1; DSB(DS_click_edge) = 0; }
     /* PORT: A / Z (kbd_take_shift_dir) is a shift event with a forced direction (port addition of the SR1 port) */
     s8 shift_dir = kbd_take_shift_dir();
+    if (easy && !robot) {
+        enh_input(&easy_direction, &gas, &brake, &shift_dir);
+        if (!easy_direction && steer) easy_direction = DSS(DS_cursor_x) > 0 ? 1 : -1;
+    }
     if (shift_dir) shift = 1;
     if (robot) {                                                /* the computer drives */
         if ((s16)(PHS(p, PH_RPM_UP) * 4 + PHS(p, PH_RPM)) < 0x1644) {
@@ -350,6 +361,7 @@ void race_phys_step(void)
         if (PHS(p, PH_RPM) < 0x7D0 && PHS(p, PH_GEAR) > 1 && !gas) shift = 1;
         if (PHW(p, PH_AUTOMATIC) != 0 && PHS(p, PH_GEAR) > 0) shift = 0;
     }
+    if (enh_slow_strip()) gas = false;
     if (DSB(DS_racing) != 0) {
         DSL(DS_distance) += (u32)(s32)PHS(p, PH_SPEED);
         PHW(p, PH_STEPS)++;
@@ -401,7 +413,9 @@ void race_phys_step(void)
             bool blow = tw >= 0x26AC;
             if (!blow && PHW(p, PH_AUTOMATIC) == 0 && gas && PHS(p, PH_RPM) > 0x1388) {
                 s16 r = rnd(0xCCD);
-                if ((s16)(tw / 100 + 100) > r) blow = 1;
+                /* Enhanced: roughly ten times fewer random transmission failures.
+                 * Keep the original RNG draw and the wear-out check above. */
+                if ((s16)((tw / 100 + 100) / 10) > r) blow = 1;
             }
             if (blow) { DSB(p + PH_RESULT) |= 0x11; race_ctrl_reset(); }
         }
@@ -451,7 +465,12 @@ void race_phys_step(void)
         PHS(p, PH_SPEED) = cdiv16(PHS(p, PH_RPM), PHS(p, PH_CUR_RATIO));
     }
     s16 ss = DSS(DS_cursor_x);
-    if (steer && abs16((s16)(PHS(p, PH_STEER_IN) + ss)) > abs16(PHS(p, PH_STEER_IN))) {
+    if (easy && !robot) {
+        if (DSS(DS_track_end) < DSS(DS_seg) || DSS(DS_ai_brake) > 0) easy_direction = 0;
+        PHS(p, PH_WHEEL) = enh_steering(PHS(p, PH_WHEEL), easy_direction, PHS(p, PH_SPEED));
+        PHS(p, PH_STEER_IN) = PHS(p, PH_WHEEL);
+        DSW(DS_cursor_x) = 0;
+    } else if (steer && abs16((s16)(PHS(p, PH_STEER_IN) + ss)) > abs16(PHS(p, PH_STEER_IN))) {
         s16 si = abs16(PHS(p, PH_STEER_IN));
         s16 di = abs16(PHS(p, PH_WHEEL));
         if ((s16)(abs16(ss) + di) == abs16((s16)(PHS(p, PH_WHEEL) + ss)) && si < di)
@@ -463,7 +482,7 @@ void race_phys_step(void)
     } else {
         PHW(p, PH_STEER_IN) = 0;
     }
-    if (abs16(PHS(p, PH_WHEEL)) > 0) {
+    if (!(easy && !robot) && abs16(PHS(p, PH_WHEEL)) > 0) {
         s16 wh = PHS(p, PH_WHEEL);
         PHS(p, PH_WHEEL) = (s16)(wh + (wh > 0 ? -((wh >> 2) + 1) : ((s16)(-wh) >> 2) + 1));
     }
@@ -518,8 +537,8 @@ static void opp_ai(void)
     s16 v0 = PHS(OPP, PH_SPEED), lim = 0;
     s16 n = (s16)(PHS(PLAYER, PH_STEPS) - DSS(DS_ai_steps_done));
     DSW(DS_ai_steps_done) = PHW(PLAYER, PH_STEPS);
-    if ((MODE & 0x10) && (TRKB(TRK_C, DSS(DS_opp_seg)) & 0x60) && PHS(OPP, PH_SPEED) > 0x3B) {
-        opp_gear(0x3B, OPP);                                    /* Mulholland slow section */
+    if ((MODE & 0x10) && (TRKB(TRK_C, DSS(DS_opp_seg)) & 0x60) && PHS(OPP, PH_SPEED) > enh_opponent_limit(0x3B)) {
+        opp_gear(enh_opponent_limit(0x3B), OPP);                 /* Mulholland slow section */
         goto tail;
     }
     for (s16 i = 0; i < n; i++) {
@@ -527,7 +546,7 @@ static void opp_ai(void)
         if (!(MODE & 0xE) && TRKS(TRK_YAW, os) != TRKS(TRK_YAW, os + 1)) {
             if (DSW(DS_ai_curve_braked) == 0) {
                 DSW(DS_ai_curve_braked) = 1;
-                lim = (s16)(DSS(DS_opp_vmax) - (DSS(DS_opp_seg) > DSS(DS_seg) ? 0x1E : 3));
+                lim = enh_opponent_limit((s16)(DSS(DS_opp_vmax) - (DSS(DS_opp_seg) > DSS(DS_seg) ? 0x1E : 3)));
                 if (lim < PHS(OPP, PH_SPEED)) opp_gear(lim, OPP);
                 continue;
             }
@@ -535,11 +554,12 @@ static void opp_ai(void)
         if (!(MODE & 6)) {
             s16 d = (s16)(DSS(DS_opp_seg) - DSS(DS_seg));
             if (d > 0xC) {
-                lim = (PHS(PLAYER, PH_SPEED) >= 0x61 || DSW(DS_vs_king) != 0) ? DSS(DS_opp_v80) : DSS(DS_opp_v70);
+                lim = enh_opponent_limit((PHS(PLAYER, PH_SPEED) >= 0x61 || DSW(DS_vs_king) != 0) ? DSS(DS_opp_v80) : DSS(DS_opp_v70));
                 if (lim < PHS(OPP, PH_SPEED)) { opp_gear(lim, OPP); continue; }
             } else if (d > -5 && d < 5) {
                 lim = (s16)(PHS(PLAYER, PH_SPEED) + DSS(DS_opp_slack));
                 if (DSS(DS_seg) >= 0x1E && lim < DSS(DS_opp_v70)) lim = DSS(DS_opp_v70);
+                lim = enh_opponent_limit(lim);
                 if (lim < PHS(OPP, PH_SPEED)) { opp_gear(lim, OPP); continue; }
             }
             if (DSS(DS_police_state) >= 2 && PHS(PLAYER, PH_SPEED) > 0x32) {
@@ -547,7 +567,7 @@ static void opp_ai(void)
                 if (lim < PHS(OPP, PH_SPEED)) { opp_gear(lim, OPP); continue; }
             }
         }
-        PHW(OPP, PH_RPM) += PHW(OPP, PH_BAND_UP);
+        PHW(OPP, PH_RPM) += enh_opponent_limit(PHS(OPP, PH_BAND_UP));
         if (PHS(OPP, PH_RPM) > DSS(DS_opp_shift_rpm)) PHW(OPP, PH_RPM) = DSW(DS_opp_shift_rpm);
         if (PHS(OPP, PH_RPM) > PHS(OPP, PH_BAND_HI)) {
             if (PHS(OPP, PH_BAND) < 2) PHW(OPP, PH_BAND)++;
@@ -579,6 +599,8 @@ static void opp_ai(void)
     }
 tail:
     (void)lim;
+    if (enh_easy_race() && PHS(OPP, PH_SPEED) > enh_opponent_limit(DSS(DS_opp_vmax)))
+        opp_gear(enh_opponent_limit(DSS(DS_opp_vmax)), OPP);
     if (MODE == 4) return;
     if (DSS(DS_opp_seg) >= DSS(DS_track_end)) {
         s16 dec = (s16)(DSS(DS_seg) + 5) >= DSS(DS_opp_seg) ? 10 : 5;
@@ -882,6 +904,7 @@ void race_step(void)
         race_ctrl_reset();
         return;
     }
+    if (enh_recovering()) { DSW(DS_opp_contact) = 0; return; }
     if (DSW(DS_demo) != 0 || DSW(DS_opp_alongside) == 0 || DSS(DS_seg) >= DSS(DS_track_end)) return;
     if (DSW(DS_opp_contact) != 0 && DSS(DS_police_state) <= 1) {
         DSB(PLAYER + PH_RESULT) |= 3;
@@ -901,7 +924,7 @@ void race_step(void)
             } else DSW(DS_ai_yield_toggle) = 0;
             return;
         }
-        if (DSW(DS_bump_allowed) == 0 || start_lane || (MODE & 6) || DSS(DS_alongside_count) <= 3 || DSS(DS_police_state) >= 2) return;
+        if (enh_easy_race() || DSW(DS_bump_allowed) == 0 || start_lane || (MODE & 6) || DSS(DS_alongside_count) <= 3 || DSS(DS_police_state) >= 2) return;
         if (rnd((s16)(((15 - DSC((u16)(DSW(DS_opp_rec) + PR_B))) >> 2) + 2)) == 0) {   /* bumped off line */
             sound_vec(SND_SCREECH);
             sound_vec(SND_SCREECH);

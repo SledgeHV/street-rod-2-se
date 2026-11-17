@@ -1,6 +1,10 @@
 # Original game and third-party tools (not redistributable / downloaded)
 /Game/
 /Game
+/game_original/
+/.reference/
+/HOTROD*.SAV
+/hall_dat
 /DOSBOX/
 /_tools
 /_tools/

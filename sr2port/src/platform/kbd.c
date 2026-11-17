@@ -1,3 +1,4 @@
+#include "enhanced/enhanced.h"
 /* Platform: the keyboard - INT 9 handler 0001:3014 with the translation table DS:3B6E, the single-byte
  * key slot, the hot-key remap and text mode - platform.md 0001:1bea-1c5c, 0001:2fd6-3194.
  *
@@ -29,7 +30,8 @@ void kbd_isr(u8 sc)
     host_port61((u8)(p | 0x80));
     host_port61(p);
 
-    if (sc == 0xFF || sc >= 0xE0) return;                 /* E0 / E1 prefixes and overruns ignored */
+    if (sc == 0xFF || sc >= 0xE0) return;
+    if (enh_key(sc)) return;                 /* E0 / E1 prefixes and overruns ignored */
     if (DSB(DS_racing) != 0 && (sc == 0x1E || sc == 0x2C || sc == 0x9E || sc == 0xAC)) {
         if (sc == 0x1E) shift_dir = 1;                    /* PORT: A = shift up (see kbd_take_shift_dir) */
         else if (sc == 0x2C) shift_dir = -1;              /* PORT: Z = shift down */
@@ -104,6 +106,8 @@ s16 key_read(void)
  * PORT: host-side, no counterpart in the original. */
 static void kbd_focus_lost(void)
 {
+    enh_input_reset();
+    shift_dir = 0;
     for (u8 sc = 0x01; sc <= 0x55; sc++) kbd_isr((u8)(sc | 0x80));
 }
 

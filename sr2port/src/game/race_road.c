@@ -1,3 +1,4 @@
+#include "enhanced/enhanced.h"
 /* Road renderer of race_render segment 0dcb (port/spec/race_render.md §1-§3; SR1 race_road.c): segment pointers,
  * projection, the frame (front view, mirror, overlays, page flip, pacing), the advance along the road and the
  * autopilot, edge collisions, sky / horizon / ground, road bands, town walls, hillsides, road-side shapes and
@@ -15,6 +16,8 @@
 #include "host.h"
 #include "platform/platform.h"
 #include "platform/video.h"
+#include <math.h>
+#include <string.h>
 
 #define MODE   DSS(DS_road_mode)
 #define XMIN   DSS(DS_clip_xmin)
@@ -30,8 +33,69 @@ FarPtr back_page(void)
 }
 
 /* value at a near row pointer DS:ptr, and its neighbours */
-static inline s16 rv(u16 ptr) { return DSS(DSW(ptr)); }
-static inline s16 rvk(u16 ptr, s16 k) { return DSS((u16)(DSW(ptr) + 2 * k)); }
+/* Extended rows live outside DGROUP: its original 15-word arrays are adjacent
+ * to game state and must never be enlarged in place. These scratch tables are
+ * rebuilt on every enhanced projection; classic frames use the original DS. */
+static const u16 row_tables[] = { DS_row_xr, DS_row_xl, DS_row_y, DS_row_xor, DS_row_xol,
+    DS_row_yeye, DS_row_ykerb, DS_row_ybank_l, DS_row_ybank_r, DS_row_xfar_l, DS_row_xfar_r };
+static const u16 row_ptrs[][2] = { {DS_rp_xr, DS_rq_xr}, {DS_rp_xl, DS_rq_xl},
+    {DS_rp_y, DS_rq_y}, {DS_rp_xor, DS_rq_xor}, {DS_rp_xol, DS_rq_xol},
+    {DS_rp_ye, DS_rq_ye}, {DS_rp_y79e, DS_rq_y79e}, {DS_rp_yt1, DS_rq_yt1},
+    {DS_rp_yt2, DS_rq_yt2}, {DS_rp_xfl, DS_rq_xfl}, {DS_rp_xfr, DS_rq_xfr} };
+static s16 render_rows[11][ENH_SCENERY_ROWS + 1];
+static double precise_rows[11][ENH_SCENERY_ROWS + 1];
+static bool precise_ready;
+static int render_row;
+static bool render_front;
+
+static s16 *road_row(u16 table, int k)
+{
+    if (enh_replaying && MODE != 8)
+        for (int i = 0; i < 11; ++i)
+            if (row_tables[i] == table) return &render_rows[i][k < 0 ? 0 : k > ENH_SCENERY_ROWS ? ENH_SCENERY_ROWS : k];
+    return (s16 *)mp(DGROUP, (u16)(table + 2 * k));
+}
+
+static void sync_near_rows(void)
+{
+    if (!enh_replaying) return;
+    for (int i = 0; i < 11; ++i)
+        for (int k = 0; k < 15; ++k) DSS((u16)(row_tables[i] + 2 * k)) = render_rows[i][k];
+}
+
+static inline s16 rvk(u16 ptr, s16 k)
+{
+    if (enh_replaying && MODE != 8)
+        for (int i = 0; i < 11; ++i)
+            for (int q = 0; q < 2; ++q)
+                if (row_ptrs[i][q] == ptr) return *road_row(row_tables[i], render_row - q + k);
+    return DSS((u16)(DSW(ptr) + 2 * k));
+}
+static inline s16 rv(u16 ptr) { return rvk(ptr, 0); }
+
+static double precise_value(u16 ptr)
+{
+    if (enh_replaying && precise_ready && MODE != 8)
+        for (int i = 0; i < 11; ++i)
+            for (int q = 0; q < 2; ++q)
+                if (row_ptrs[i][q] == ptr) {
+                    int k = render_row - q;
+                    if (k < 0) k = 0;
+                    if (k > ENH_SCENERY_ROWS) k = ENH_SCENERY_ROWS;
+                    return precise_rows[i][k];
+                }
+    return rv(ptr);
+}
+
+static s16 dash_width(void)
+{
+    if (enh_replaying && render_front) {
+        int row = render_row > 14 ? 14 : render_row;
+        s16 w = DSS((u16)(DS_dash_width + 2 * row));
+        return render_row > 14 ? (s16)(w * 14 / render_row) : w;
+    }
+    return DSS(DSW(DS_dash_ptr));
+}
 /* word at a far pointer DS:fp + 2 idx */
 static inline u16 fw(u16 fp, s16 idx) { FarPtr p = ds_far(fp); return rd16(p.seg, (u16)(p.off + 2 * idx)); }
 static inline void fadv(u16 fp, s16 bytes) { DSW(fp) = (u16)(DSW(fp) + bytes); }
@@ -69,8 +133,12 @@ static s16 cam_x_clamped(void)
 }
 
 /* 0dcb:062c road_proj_x */
-s16 road_proj_x(s16 z, s16 x, s16 dx)
+s16 road_proj_x(double depth, double world, double delta)
 {
+    if (depth == 0) depth = 1;
+    if (enh_replaying) return enh_pixel(enh_project_x(depth, world, delta, false));
+    s16 x = (s16)world, dx = (s16)delta;
+    s16 z = (s16)depth;
     s16 cx = cam_x_clamped();
     x = add16(x, (s16)((s16)(z * dx) >> 2));
     s16 t = shl16(sub16(cx, x), 2);
@@ -79,16 +147,24 @@ s16 road_proj_x(s16 z, s16 x, s16 dx)
 }
 
 /* 0dcb:0684 road_proj_y */
-s16 road_proj_y(s16 z, s16 y, s16 dy)
+s16 road_proj_y(double depth, double world, double delta)
 {
+    if (depth == 0) depth = 1;
+    if (enh_replaying) return enh_pixel(enh_project_y(depth, world, delta, false));
+    s16 y = (s16)world, dy = (s16)delta;
+    s16 z = (s16)depth;
     s16 t = add16(shl16((s16)((s16)(z * dy) & 0xFFFE), 1), shl16(sub16(y, DSS(DS_cam_y)), 2));
     if (z == 0) z = 1;
     return add16(add16(cdiv16(t, z), DSS(DS_view_bounce_y)), 0x3C);
 }
 
 /* 0dcb:06ba road_proj_x_mirror */
-s16 road_proj_x_mirror(s16 z, s16 x, s16 dx)
+s16 road_proj_x_mirror(double depth, double world, double delta)
 {
+    if (depth == 0) depth = 1;
+    if (enh_replaying) return enh_pixel(enh_project_x(depth, world, delta, true));
+    s16 x = (s16)world, dx = (s16)delta;
+    s16 z = (s16)depth;
     s16 cx = cam_x_clamped();
     x = add16(x, (s16)((s16)(z * dx) >> 2));
     s16 t = sub16(cx, x);
@@ -97,8 +173,12 @@ s16 road_proj_x_mirror(s16 z, s16 x, s16 dx)
 }
 
 /* 0dcb:070e road_proj_y_mirror */
-s16 road_proj_y_mirror(s16 z, s16 y, s16 dy)
+s16 road_proj_y_mirror(double depth, double world, double delta)
 {
+    if (depth == 0) depth = 1;
+    if (enh_replaying) return enh_pixel(enh_project_y(depth, world, delta, true));
+    s16 y = (s16)world, dy = (s16)delta;
+    s16 z = (s16)depth;
     y = add16(y, (s16)(z * dy));
     s16 t = sub16(y, DSS(DS_cam_y));
     if (z == 0) z = 1;
@@ -148,7 +228,7 @@ void road_state_init(void)
 #define T_YBR  DS_row_ybank_r   /* A7AE */
 #define T_XFL  DS_row_xfar_l    /* ADB2 */
 #define T_XFR  DS_row_xfar_r    /* B89E */
-#define ROWT(t, k) DSS((u16)((t) + 2 * (k)))
+#define ROWT(t, k) (*road_row((t), (k)))
 
 static void edges_of(u16 cm, s16 *xl, s16 *xr)
 {
@@ -160,20 +240,79 @@ static void edges_of(u16 cm, s16 *xl, s16 *xr)
 
 static s16 far_take(u16 fp, s16 step) { FarPtr p = ds_far(fp); s16 v = (s16)rd16(p.seg, p.off); fadv(fp, step); return v; }
 
+static void precise_row(u16 table, int k, double value)
+{
+    for (int i = 0; i < 11; ++i) if (row_tables[i] == table) {
+        precise_rows[i][k] = fmax(-8192.0, fmin(8192.0, value));
+        render_rows[i][k] = enh_pixel(value);
+        return;
+    }
+}
+
+/* Fractional camera/heading/height are retained through perspective projection.
+ * Road rasterizers consume the rounded copy; sprites keep the precise anchors. */
+static void road_project_precise(bool mirror)
+{
+    render_front = !mirror;
+    precise_ready = true;
+    memset(precise_rows, 0, sizeof precise_rows);
+    memset(render_rows, 0, sizeof render_rows);
+    int last = mirror ? 7 : enh_front_rows();
+    int step = mirror ? -2 : 2;
+    double w = MODE == 0x10 ? 200 : 400;
+    double q = enh_substep();
+    double height = enh_view_value(DS_cur_height), heading = enh_view_value(DS_heading);
+    for (int k = 0; k <= last; ++k) {
+        u16 cm = far_take(DS_seg_centre_ptr, (s16)step) & 0xE0;
+        double dy = 0;
+        if (!(MODE & 6)) dy = height - far_take(DS_seg_hgt_ptr, (s16)step);
+        double dx = heading - far_take(DS_seg_yaw_ptr, (s16)step);
+        if (mirror) { dx = -dx; dy = -dy; }
+        if (k == 0 && MODE == 0x10) {
+            if (!mirror) dx = fmax(-48.0, fmin(48.0, dx));
+            else if (dx > 60) dx = 70; else if (dx < -60) dx = -70;
+        }
+        double z = mirror ? (k ? 8.0*k + q : 8.0) : (k ? 4.0 + 8.0*k - q : 4.0);
+        s16 xl, xr;
+        edges_of(cm, &xl, &xr);
+#define PX(table, x) precise_row(table, k, enh_project_x(z, x, dx, mirror))
+#define PY(table, y) precise_row(table, k, enh_project_y(z, y, dy, mirror))
+        PX(T_XL, xl); PX(T_XR, xr); PY(T_Y, 2000); PY(T_YE, 0x76C);
+        double yk = enh_project_y(z, 0x79E, dy, mirror);
+        if (mirror && k) { precise_row(T_YK, 2*k - 1, yk); precise_row(T_YK, 2*k, yk); }
+        else precise_row(T_YK, k, yk);
+        if (!mirror && !k) {
+            PX(T_XOR, w - enh_view_value(DS_cam_x) + 0x19C8);
+            PX(T_XOL, enh_view_value(DS_cam_x) - w);
+        } else { PX(T_XOR, w + 0xCE4); PX(T_XOL, 0x5DC - w); }
+        /* The original mirror samples banks forwards; retain that geometry. */
+        PY(T_YBL, 2000.0 - far_take(DS_seg_bank_l_ptr, 2));
+        PY(T_YBR, 2000.0 - far_take(DS_seg_bank_r_ptr, 2));
+        PX(T_XFL, (w - 0x177) * -4); PX(T_XFR, (w + 0x339) * 4);
+#undef PX
+#undef PY
+    }
+    sync_near_rows();
+}
+
 /* 0dcb:07e4 road_project_front */
 static void road_project_front(void)
 {
+    if (enh_replaying) { road_project_precise(false); return; }
+    render_front = true;
+    if (enh_replaying) memset(render_rows, 0, sizeof render_rows);
     s16 w = MODE == 0x10 ? 200 : 400;
-    s16 q = q_shr(DSS(DS_substep), 3);
-    s16 z = 4;
-    for (s16 k = 0; k < 15; k++) {
+    double q = enh_substep();
+    double z = 4;
+    int last = enh_front_rows();
+    for (s16 k = 0; k <= last; k++) {
         u16 cm = (u16)(far_take(DS_seg_centre_ptr, 2) & 0xE0);
         s16 dy = 0;
         if (!(MODE & 6)) dy = sub16(DSS(DS_cur_height), far_take(DS_seg_hgt_ptr, 2));
         s16 dx = sub16(DSS(DS_heading), far_take(DS_seg_yaw_ptr, 2));
         if (k == 0 && MODE == 0x10) { if (dx > 0x30) dx = 0x30; else if (dx < -0x30) dx = -0x30; }
-        if (k == 1) z = (s16)(0x0C - q);
-        if (k == 14) z = add16(z, q);
+        if (k == 1) z = 0x0C - q;
+        if (k == 14 && !enh_replaying) z += q;
         s16 xl, xr;
         edges_of(cm, &xl, &xr);
         if (k == 0) ROWT(T_Y, 0) = road_proj_y(4, 2000, dy);
@@ -193,24 +332,27 @@ static void road_project_front(void)
         ROWT(T_YBR, k) = road_proj_y(z, sub16(2000, far_take(DS_seg_bank_r_ptr, 2)), dy);
         ROWT(T_XFL, k) = road_proj_x(z, (s16)((w - 0x177) * -4), dx);
         ROWT(T_XFR, k) = road_proj_x(z, (s16)((w + 0x339) * 4), dx);
-        if (k != 0) z = add16(z, 8);
+        if (k != 0) z += 8;
     }
+    sync_near_rows();
 }
 
 /* 0dcb:0ce4 road_project_mirror: rows 0..7 of the same tables (YK gets two entries per row) */
 static void road_project_mirror(void)
 {
+    if (enh_replaying) { road_project_precise(true); return; }
+    render_front = false;
     s16 w = MODE == 0x10 ? 200 : 400;
-    s16 q = q_shr(DSS(DS_substep), 3);
-    s16 z = 8;
+    double q = enh_substep();
+    double z = 8;
     for (s16 k = 0; k < 8; k++) {
         u16 cm = (u16)(far_take(DS_seg_centre_ptr, -2) & 0xE0);
         s16 dy = 0;
         if (!(MODE & 6)) dy = sub16(far_take(DS_seg_hgt_ptr, -2), DSS(DS_cur_height));
         s16 dx = sub16(far_take(DS_seg_yaw_ptr, -2), DSS(DS_heading));
         if (k == 0 && (MODE & 0x10)) { if (dx > 0x3C) dx = 0x46; else if (dx < -0x3C) dx = -0x46; }
-        if (k == 1) z = add16(q, 8);
-        if (k == 5) z = sub16(z, q);
+        if (k == 1) z = q + 8;
+        if (k == 5) z -= q;
         s16 xl, xr;
         edges_of(cm, &xl, &xr);
         ROWT(T_XR, k) = road_proj_x_mirror(z, xr, dx);
@@ -226,8 +368,9 @@ static void road_project_mirror(void)
         ROWT(T_YBR, k) = road_proj_y_mirror(z, sub16(2000, far_take(DS_seg_bank_r_ptr, 2)), dy);
         ROWT(T_XFL, k) = road_proj_x_mirror(z, (s16)((w - 0x177) * -4), dx);
         ROWT(T_XFR, k) = road_proj_x_mirror(z, (s16)((w + 0x339) * 4), dx);
-        if (k != 0) z = add16(z, 8);
+        if (k != 0) z += 8;
     }
+    sync_near_rows();
 }
 
 /* ================================================================================ pages, clip */
@@ -255,6 +398,7 @@ void road_page_flip(void)
         DSS(DS_back_page) = DSS(DS_shown_page);
         DSS(DS_shown_page) = t;
         DSW(DS_draw_seg) = DSS(DS_back_page) == 1 ? 0xA200 : 0xA400;
+        enh_presented(DSS(DS_shown_page) == 1 ? 0x2000 : 0x4000);
         ega_show_page(DSS(DS_shown_page));
     } else {                                                /* other drivers (parked) */
         Rect r;
@@ -427,6 +571,7 @@ void road_load_graphics(void)
 
 static void sky_scroll(int sh, s16 *a, s16 *b)
 {
+    if (enh_replaying) { *a = enh_sky_scroll(sh); *b = (s16)(320 - *a); return; }
     s16 h = DSS(DS_heading);
     if (h > 0) {
         s16 m = (s16)(cmod16(shl16(h, sh), 0x140) & 0xFFF8);
@@ -435,6 +580,25 @@ static void sky_scroll(int sh, s16 *a, s16 *b)
         s16 m = (s16)(cmod16(shl16(abs16(h), sh), 0x140) & 0xFFF8);
         *b = m;  *a = sub16(0x140, m);
     }
+}
+
+static void sky_blit(const Rect *r)
+{
+    if (enh_replaying)
+        enh_bitmap(ds_far(DS_page1_ptr), r->sx, r->sy, r->w, r->h, r->dx, r->dy, 1.0, false);
+    else drv_blit(ds_far(DS_page1_ptr), back_page(), r, 1);
+}
+
+static double sky_slope(int behind)
+{
+    return enh_view_value(DS_cur_height)
+        - enh_track_sample(TRK_HGT, DSS(DS_seg) - behind, enh_substep() / 8.0);
+}
+
+static s16 sky_y(double slope)
+{
+    return enh_pixel(60.0 + enh_view_value(DS_view_bounce_y) + 2.0 * slope
+        + 4.0 * (2000.0 - enh_view_value(DS_cam_y)) / 240.0);
 }
 
 /* 0dcb:3e66 road_draw_sky */
@@ -448,18 +612,19 @@ static void road_draw_sky(void)
         r.w = 0x140; r.sy = 0x66; r.dx = 0; r.h = 0x1D;
     } else {
         s16 dy = (MODE & 6) ? 0 : sub16(DSS(DS_cur_height), TRKS(TRK_HGT, DSS(DS_seg) - 1));
-        hy = road_proj_y(0xF0, 2000, dy);
-        if (hy > 0x51 || hy < 0x13) hy = hy < 0x12 ? 0x12 : 0x52;    /* quirk: 0x12 becomes 0x52 */
+        hy = enh_replaying ? sky_y((MODE & 6) ? 0 : sky_slope(1)) : road_proj_y(0xF0, 2000, dy);
+        if (enh_replaying) { if (hy < 18) hy = 18; if (hy > 82) hy = 82; }
+        else if (hy > 0x51 || hy < 0x13) hy = hy < 0x12 ? 0x12 : 0x52;    /* quirk: 0x12 becomes 0x52 */
         r.h = sub16(hy, 0x1E);
         r.sy = (s16)-(hy - 0xB8);
         sky_scroll(1, &a, &b);
         r.w = b; r.dx = a;
     }
     r.sx = 0;
-    drv_blit(ds_far(DS_page1_ptr), back_page(), &r, 1);
+    sky_blit(&r);
     if (race) {
         r.w = a; r.sx = b; r.dx = 0;
-        if (hy > 0x12) drv_blit(ds_far(DS_page1_ptr), back_page(), &r, 1);
+        if (hy > 0x12) sky_blit(&r);
     }
     r.h = race ? 0x14 : 0x10;
     r.sy = 0xA3;
@@ -470,13 +635,13 @@ static void road_draw_sky(void)
     }
     r.sx = 0;
     blit_clip_y(&r);
-    drv_blit(ds_far(DS_page1_ptr), back_page(), &r, 1);
-    DSS(DS_top_band_row) = 0x0E;
+    sky_blit(&r);
+    DSS(DS_top_band_row) = (s16)enh_front_rows();
     if (!race) { drv_fill_rows(0x3F, 1); return; }
     r.w = a; r.sx = b; r.dx = 0;
-    drv_blit(ds_far(DS_page1_ptr), back_page(), &r, 1);
+    sky_blit(&r);
     DSS(DS_ground_top_y) = add16(hy, 8);
-    for (s16 k = 14; k != 0; k--) {
+    for (s16 k = (s16)enh_front_rows(); k != 0; k--) {
         s16 yk = ROWT(T_Y, k);
         if (yk < DSS(DS_ground_top_y)) { DSS(DS_ground_top_y) = yk; DSS(DS_top_band_row) = k; }
     }
@@ -487,12 +652,12 @@ static void road_draw_sky(void)
 /* 0dcb:3cca road_draw_sky_mulholland */
 static void road_draw_sky_mulholland(void)
 {
-    s16 dy = sub16(DSS(DS_cur_height), TRKS(TRK_HGT, DSS(DS_seg) - 4));
+    double dy = enh_replaying ? sky_slope(4) : sub16(DSS(DS_cur_height), TRKS(TRK_HGT, DSS(DS_seg) - 4));
     if (dy > 8) dy = 8;
     else if (dy < -8 && DSS(DS_fall_dir) == 0) dy = -8;
-    s16 hy = road_proj_y(0xF0, 2000, dy);
+    s16 hy = enh_replaying ? sky_y(dy) : road_proj_y(0xF0, 2000, (s16)dy);
     Rect r;
-    r.sy = (s16)(0x6E - dy);
+    r.sy = enh_replaying ? enh_pixel(0x6E - dy) : (s16)(0x6E - dy);
     r.h = (s16)(199 - r.sy);
     if (r.h > 0x53) r.h = 0x53;
     r.dy = 0x12;
@@ -500,13 +665,13 @@ static void road_draw_sky_mulholland(void)
     sky_scroll(1, &a, &b);
     r.w = b; r.sx = 0; r.dx = a;
     blit_clip_y(&r);
-    drv_blit(ds_far(DS_page1_ptr), back_page(), &r, 1);
+    sky_blit(&r);
     r.w = a; r.sx = b; r.dx = 0;
-    drv_blit(ds_far(DS_page1_ptr), back_page(), &r, 1);
+    sky_blit(&r);
     s16 bottom = (s16)(r.h + 0x12);
     DSS(DS_ground_top_y) = (s16)(hy + 8);
-    DSS(DS_top_band_row) = 14;
-    for (s16 k = 14; k != 0; k--)
+    DSS(DS_top_band_row) = (s16)enh_front_rows();
+    for (s16 k = (s16)enh_front_rows(); k != 0; k--)
         if (ROWT(T_Y, k) < DSS(DS_ground_top_y)) { DSS(DS_ground_top_y) = ROWT(T_Y, k); DSS(DS_top_band_row) = k; }
     if (DSS(DS_fall_dir) != 0 && bottom < 0x65) drv_fill_rows(bottom, 0x0E);
 }
@@ -585,7 +750,7 @@ static void road_draw_band_front(s16 row)
     s16 w = 0, dashx = 0;
     bool wide = (MODE & 6) && DSS(DS_front_row_seg) < (s16)(DSS(DS_start_seg) + 5);
     if (C & 8) {
-        w = wide ? shl16(DSS(DSW(DS_dash_ptr)), 3) : DSS(DSW(DS_dash_ptr));
+        w = wide ? shl16(dash_width(), 3) : dash_width();
         dashx = sub16((s16)(add16(xl, xr) >> 1), (s16)(w >> 1));
     }
     if (sgn16(sub16(yq, y)) < 0) return;
@@ -605,7 +770,7 @@ static void road_draw_band_front(s16 row)
             } else {
                 if (row > 9) {                              /* recomputed every line (96F0 net unchanged) */
                     L16 = 0;
-                    for (s16 k = 14; k > 9; k--) {
+                    for (s16 k = enh_replaying ? 0 : 14; k > 9; k--) {
                         s16 s = (s16)(DSS(DS_seg) + k);
                         u16 ck = fw(DS_seg_centre_ptr, k), cm1 = fw(DS_seg_centre_ptr, (s16)(k - 1));
                         (void)s;
@@ -613,7 +778,9 @@ static void road_draw_band_front(s16 row)
                     }
                     kk = (s16)(0x10 - row);
                 }
-                s16 ext = DSS((u16)(DS_hill_peak_tab + 4 + 4 * kk));     /* word DS:7E22 + 4 kk */
+                if (enh_replaying) L16 = ((fw(DS_centre_ptr, -1) | fw(DS_centre_ptr, 1)) & 0x80) != 0;
+                s16 ext = enh_replaying ? enh_hill_peak(DS_hill_peak_tab, row - 2)
+                    : DSS((u16)(DS_hill_peak_tab + 4 + 4 * kk));
                 if (rv(DS_rq_yt1) == yq) drv_hspan((L16 == 0 || row < 10) ? 0 : (s16)(xl - ext), xl, y);
                 if (rv(DS_rq_yt2) == yq) drv_hspan(xr, (L16 == 0 || row < 10) ? 0x13F : (s16)(ext + xr), y);
             }
@@ -672,7 +839,7 @@ static void road_draw_band_mirror(void)
     s16 w = 0, dashx = 0;
     bool wide = (MODE & 6) && DSS(DS_mirror_row_seg) < (s16)(DSS(DS_start_seg) + 5);
     if (fw(DS_centre_ptr, 0) & 8) {
-        w = wide ? shl16(DSS(DSW(DS_dash_ptr)), 2) : DSS(DSW(DS_dash_ptr));
+        w = wide ? shl16(dash_width(), 2) : dash_width();
         dashx = sub16((s16)(add16(xl, xr) >> 1), (s16)(w >> 1));
     }
     if (sgn16(sub16(yq, y)) < 0) return;
@@ -829,18 +996,20 @@ void shape_draw_dot(s16 x, s16 y)
 }
 
 /* 0dcb:5158 scenery_draw_shape */
-void scenery_draw_shape(s16 x, s16 y, s16 depth, s16 side, s16 type, s16 noclamp)
+void scenery_draw_shape(double x, double y, s16 depth, s16 side, s16 type, s16 noclamp)
 {
+    if (noclamp == 0 && y > 0x65) y = 0x65;
+    if (enh_shape(x, y, depth, side, ds_far((u16)(DS_shp_a_ptrs + 4 * type)))) return;
     s16 lod = sub16(9, depth);
     if (lod > 6) lod = 6;
     if (lod < 0) lod = 0;
-    if (noclamp == 0 && y > 0x65) y = 0x65;
     shape_draw(x, y, lod, ds_far((u16)(DS_shp_a_ptrs + 4 * type)), side);
 }
 
 /* 0dcb:51aa scenery_draw_hydrant (set 2, 8 LODs, no y clamp) */
-static void scenery_draw_hydrant(s16 x, s16 y, s16 depth, s16 side)
+static void scenery_draw_hydrant(double x, double y, s16 depth, s16 side)
 {
+    if (enh_shape(x, y, depth, side, ds_far(DS_shp_a_ptrs + 8))) return;
     s16 lod = sub16(9, depth);
     if (lod > 7) lod = 7;
     if (lod < 0) lod = 0;
@@ -848,9 +1017,24 @@ static void scenery_draw_hydrant(s16 x, s16 y, s16 depth, s16 side)
 }
 
 /* 0dcb:51e0 scenery_draw_bush_group */
-static void scenery_draw_bush_group(s16 x, s16 y, s16 depth, s16 side)
+static void scenery_draw_bush_group(double x, double y, s16 depth, s16 side)
 {
     s16 d2 = (s16)(depth + 2);
+    if (enh_replaying) {
+        /* A fixed reference layout, projected at every distance. The original
+         * tables only cover near rows, and depth 0/1/2 have abrupt offsets. */
+        double scale = 28.0 / enh_depth(depth);
+        double w = DSS(DS_bush_group_hw + 4 * 3 + 2) * scale;
+        double h = DSS(DS_bush_group_hw + 4 * 3) * scale;
+        double a = DSS(DS_bush_group_dx + 4 * 3) * scale;
+        double b = DSS(DS_bush_group_dx + 4 * 5 + 2) * scale;
+        scenery_draw_shape(x, y, depth, side, 8, 1);
+        scenery_draw_shape(x + w * side, y, depth, side, 7, 1);
+        scenery_draw_shape(x + (w + a) * side, y, depth, side, 8, 1);
+        scenery_draw_shape(x + w / 2 * side, y - h, d2, side, 7, 1);
+        scenery_draw_shape(x + (w / 2 + b) * side, y - h, d2, side, 8, 1);
+        return;
+    }
     if (depth == 0) x = (s16)(x + side * 100);
     if (depth == 1) x = (s16)(x + side * 40);
     if (depth == 2) x = (s16)(x + side * 10);
@@ -864,11 +1048,12 @@ static void scenery_draw_bush_group(s16 x, s16 y, s16 depth, s16 side)
 }
 
 /* 0dcb:52e2 scenery_draw_sign_picture: kind 1 location sign sheet, 2 / 3 town billboards */
-static void scenery_draw_sign_picture(s16 x, s16 y, s16 depth, s16 align, s16 xclip, s16 kind)
+static void scenery_draw_sign_picture(double x, double y, s16 depth, s16 align, s16 xclip, s16 kind)
 {
     s16 size = sub16(9, depth);
     if (size > 6) size = 6;
     if (size < 0) size = 0;
+    if (enh_replaying) size = 6;
     u16 e = (u16)(DS_sign_sizes + 6 * size);
     Rect r;
     r.w = DSS((u16)(e + 2));
@@ -882,6 +1067,13 @@ static void scenery_draw_sign_picture(s16 x, s16 y, s16 depth, s16 align, s16 xc
     } else if (kind == 2) src = ds_far(DS_billboard_pics);
     else if (kind == 3)   src = ds_far(DS_billboard_pics + 4);
     else return;
+    if (enh_replaying) {
+        double scale = 24.0 / enh_depth(depth);
+        double dx = x - (align == 1 ? r.w * scale : align == 0 ? r.w * scale / 2 : 0);
+        double dy = y - r.h * scale / (align == 0 ? 2 : 1);
+        enh_bitmap(src, r.sx, r.sy, r.w, r.h, dx, dy, scale, false);
+        return;
+    }
     if (align == 1)      x = sub16(x, r.w);
     else if (align == 0) x = sub16(x, (s16)(r.w >> 1));
     r.dx = x;
@@ -891,16 +1083,16 @@ static void scenery_draw_sign_picture(s16 x, s16 y, s16 depth, s16 align, s16 xc
 }
 
 /* 0dcb:55ce scenery_draw_banner */
-static void scenery_draw_banner(s16 xl, s16 xr, s16 ytop, s16 ybot, s16 depth, s16 xclip, u16 flags)
+static void scenery_draw_banner(double xl, double xr, double ytop, double ybot, s16 depth, s16 xclip, u16 flags)
 {
-    for (s16 si = add16(DSS(DSW(DS_dash_ptr)), 1); si != 0; si--) {
+    for (s16 si = add16(dash_width(), 1); si != 0; si--) {
         road_fillmode_end();
-        road_vline(10, sub16(xl, si), ytop, ybot);
-        road_vline(10, add16(xr, si), ytop, ybot);
+        road_vline(10, enh_replaying ? enh_pixel(xl - si) : sub16(xl, si), enh_replaying ? enh_pixel(ytop) : ytop, enh_replaying ? enh_pixel(ybot) : ybot);
+        road_vline(10, enh_replaying ? enh_pixel(xr + si) : add16(xr, si), enh_replaying ? enh_pixel(ytop) : ytop, enh_replaying ? enh_pixel(ybot) : ybot);
         road_fillmode_begin();
-        hl(10, xl, xr, (s16)(si + ytop - 1));
+        hl(10, enh_replaying ? enh_pixel(xl) : xl, enh_replaying ? enh_pixel(xr) : xr, enh_replaying ? enh_pixel(si + ytop - 1) : (s16)(si + ytop - 1));
     }
-    s16 mid = (s16)(add16(xl, xr) >> 1);
+    double mid = enh_replaying ? (xl + xr) / 2 : (s16)(add16(xl, xr) >> 1);
     if (flags & 0x1000) { scenery_draw_shape(mid, ytop, depth, 1, 0x0D, 0); return; }
     s16 kind;
     if (!(flags & 0x2000)) {
@@ -919,7 +1111,7 @@ static void scenery_draw_banner(s16 xl, s16 xr, s16 ytop, s16 ybot, s16 depth, s
 static void scenery_draw_truss(s16 xl1, s16 xr1, s16 yt1, s16 yb1, s16 xl2, s16 xr2, s16 yt2, s16 yb2, s16 parity, s16 near_flag)
 {
     road_fillmode_end();
-    for (s16 n = add16(DSS(DSW(DS_dash_ptr)), 1); n != 0; n--) {
+    for (s16 n = add16(dash_width(), 1); n != 0; n--) {
         s16 a = sub16(xl1, n), b = add16(xr1, n), c = sub16(xl2, n), e = add16(xr2, n);
         clip_line(a, yt1, a, yb1, 10);
         clip_line(b, yt1, b, yb1, 10);
@@ -938,7 +1130,7 @@ static void scenery_draw_truss(s16 xl1, s16 xr1, s16 yt1, s16 yb1, s16 xl2, s16 
 static void scenery_draw_truss_end(s16 xl, s16 xr, s16 ytop, s16 ybot)
 {
     road_fillmode_end();
-    for (s16 n = add16(DSS(DSW(DS_dash_ptr)), 1); n != 0; n--) {
+    for (s16 n = add16(dash_width(), 1); n != 0; n--) {
         clip_line(sub16(xl, n), ytop, sub16(xl, n), ybot, 10);
         clip_line(add16(xr, n), ytop, add16(xr, n), ybot, 10);
         clip_line(xl, (s16)(ytop + n - 1), xr, (s16)(ytop + n - 1), 10);
@@ -1026,6 +1218,7 @@ static void set_ptr(u16 ptr, u16 table, s16 row) { DSW(ptr) = (u16)(table + 2 * 
 
 static void row_ptrs_init(s16 row)
 {
+    render_row = row;
     set_ptr(DS_rp_xl, T_XL, row);    set_ptr(DS_rq_xl, T_XL, row - 1);
     set_ptr(DS_rp_xr, T_XR, row);    set_ptr(DS_rq_xr, T_XR, row - 1);
     set_ptr(DS_rp_y, T_Y, row);      set_ptr(DS_rq_y, T_Y, row - 1);
@@ -1041,6 +1234,7 @@ static void row_ptrs_init(s16 row)
 
 static void row_ptrs_step(void)
 {
+    --render_row;
     static const u16 ptrs[] = { DS_rp_xl, DS_rq_xl, DS_rp_xr, DS_rq_xr, DS_rp_y, DS_rq_y, DS_rp_y79e, DS_rq_y79e,
                                 DS_rp_yt1, DS_rq_yt1, DS_rp_yt2, DS_rq_yt2, DS_rp_xfl, DS_rq_xfl, DS_rp_xfr, DS_rq_xfr,
                                 DS_rp_xol, DS_rq_xol, DS_rp_xor, DS_rq_xor, DS_rp_ye, DS_rq_ye, DS_dash_ptr };
@@ -1087,10 +1281,21 @@ static void front_hillsides(s16 row, s16 L16)
     s16 o = DSS(DS_fall_dir);
     s16 dyaw = sub16(DSS(DS_heading), TRKS(TRK_YAW, DSS(DS_seg)));
     s16 k = (s16)(15 - row);
-    s16 W0 = PEAK(0x7E1E, k), H0 = PEAK(0x7E20, k), W1 = PEAK(0x7E22, k), H1 = PEAK(0x7E24, k), E = PEAK(0x7E3A, k);
+    s16 W0 = 0, H0 = 0, W1 = 0, H1 = 0, E = 0;
+    if (enh_replaying) {
+        /* The DOS peak silhouette is a distant bridge-exit effect. Its near
+         * entries include negative widths (-20, -2000), so applying it beside
+         * any bridge folds the bank across the road as the camera approaches.
+         * Enhanced frames use the projected bank surface at every distance;
+         * the Cm1 bridge branch below still closes the exit abutment. */
+        L16 = 0;
+    } else {
+        W0 = PEAK(0x7E1E, k); H0 = PEAK(0x7E20, k);
+        W1 = PEAK(0x7E22, k); H1 = PEAK(0x7E24, k); E = PEAK(0x7E3A, k);
+    }
     u16 Cm1 = fw(DS_centre_ptr, -1);
     s16 XLq1 = rvk(DS_rq_xl, -1), Yq1 = rvk(DS_rq_y, -1), YT1q1 = rvk(DS_rq_yt1, -1), XRq1 = rvk(DS_rq_xr, -1), YT2q1 = rvk(DS_rq_yt2, -1);
-    if (dyaw > -100 && Yq != YT1q) {
+    if ((enh_replaying || dyaw > -100) && Yq != YT1q) {
         if (L16 && YT1p <= Yp) {
             if (Cm1 & 0x80) {
                 poly6(0x0E, XLq1, 0x65, XLq1, Yq1, XLq, Yq, XOLq, Yq, (s16)(XOLq - W1), Yq, E, 0x65);
@@ -1112,7 +1317,7 @@ static void front_hillsides(s16 row, s16 L16)
             }
         }
     }
-    if (dyaw < 100 && Yq != YT2q) {
+    if ((enh_replaying || dyaw < 100) && Yq != YT2q) {
         if (L16 && YT2p <= Yp) {
             if (Cm1 & 0x80) {
                 poly6(0x0E, XRq1, 0x65, XRq1, Yq1, XRq, Yq, XORq, Yq, (s16)(W1 + XORq), Yq, (s16)(0x13F - E), 0x65);
@@ -1146,101 +1351,119 @@ static s16 obstacle_hit_test(s16 x, s16 w, s16 y)
     return 0;
 }
 
+/* Keep the DOS wrap/shift rules for simulation frames, and fractions for
+ * composite scenery anchors in display-only frames. */
+static double scene_add(double a, double b) { return enh_replaying ? a + b : add16((s16)a, (s16)b); }
+static double scene_sub(double a, double b) { return enh_replaying ? a - b : sub16((s16)a, (s16)b); }
+static double scene_half(double a) { return enh_replaying ? a / 2 : (s16)a >> 1; }
+static double scene_twice(double a) { return enh_replaying ? a * 2 : shl16((s16)a, 1); }
+static double scene_lane(double left, double span, s16 lane)
+{
+    return enh_replaying ? left + lane * span / 16 : (s16)(((s16)(lane * span) >> 4) + left);
+}
+
 static void front_objects(s16 row)
 {
     u16 L = fw(DS_left_ptr, 0), R = fw(DS_right_ptr, 0), C = fw(DS_centre_ptr, 0);
     s16 cross = (s16)(C & 1);
     s16 cpu = DSS(DS_cpu_speed);
-    s16 Y = Yp, span = sub16(XRp, XLp);
+    double xl = precise_value(DS_rp_xl);
+    double xr = precise_value(DS_rp_xr);
+    double xol = precise_value(DS_rp_xol);
+    double xor = precise_value(DS_rp_xor);
+    double xfr = precise_value(DS_rp_xfr);
+    double xfl = precise_value(DS_rp_xfl);
+    double ye = precise_value(DS_rp_ye);
+    double Y = precise_value(DS_rp_y), span = scene_sub(xr, xl);
     s16 t = MODE == 0x10 ? 0x15 : 4, u = MODE == 0x10 ? 0x16 : 0xB;
-    if (MODE != 0x10 && (L & 0x20) && cpu > 3) scenery_draw_shape(XLp, Y, row, -1, 0, 0);
+    if (MODE != 0x10 && (L & 0x20) && cpu > 3) scenery_draw_shape(xl, Y, row, -1, 0, 0);
     if (L & 0x100) {
-        if (cross) scenery_draw_shape(XLp, Y, row, -1, 4, 1);
-        else if (!(MODE == 0x10 && Yq != YT1q)) {
-            if (L & 0x200) scenery_draw_shape(sub16(shl16(XOLp, 1), XLp), Y, (s16)(row + 2), -1, t, 1);
-            else           scenery_draw_shape(XOLp, Y, row, -1, t, 1);
+        if (cross) scenery_draw_shape(xl, Y, row, -1, 4, 1);
+        else if (enh_replaying || !(MODE == 0x10 && Yq != YT1q)) {
+            if (L & 0x200) scenery_draw_shape(scene_sub(scene_twice(xol), xl), Y, (s16)(row + 2), -1, t, 1);
+            else           scenery_draw_shape(xol, Y, row, -1, t, 1);
         }
     }
-    if (!(MODE & 7) && (L & 0x800))  scenery_draw_shape(XLp, Y, row, 1, 3, 0);
-    if (!(MODE & 7) && (L & 0x1000)) scenery_draw_shape(XLp, Y, row, 1, 6, 0);
+    if (!(MODE & 7) && (L & 0x800))  scenery_draw_shape(xl, Y, row, 1, 3, 0);
+    if (!(MODE & 7) && (L & 0x1000)) scenery_draw_shape(xl, Y, row, 1, 6, 0);
     if (!(MODE & 6) && (L & 1)) {
-        if (!cross) { if (Yq == YT1q) scenery_draw_shape(XLp, Y, row, 1, 1, 1); }
-        else { road_fillmode_end(); scenery_draw_sign_picture(XLp, (s16)(add16(Y, YEp) >> 1), row, 1, 0, 1); road_fillmode_begin(); }
+        if (!cross) { if (enh_replaying || Yq == YT1q) scenery_draw_shape(xl, Y, row, 1, 1, 1); }
+        else { road_fillmode_end(); scenery_draw_sign_picture(xl, scene_half(scene_add(Y, ye)), row, 1, 0, 1); road_fillmode_begin(); }
     }
-    if (MODE == 0x10 && (L & 0x10)) scenery_draw_bush_group(XLp, Y, row, 1);
+    if (MODE == 0x10 && (L & 0x10)) scenery_draw_bush_group(xl, Y, row, 1);
     if (cpu > 3) {
-        if ((MODE & 7) || Yq == YT1q) {
-            if (L & 0x40) scenery_draw_shape(XOLp, Y, row, -1, 0xA, 0);
+        if (enh_replaying || (MODE & 7) || Yq == YT1q) {
+            if (L & 0x40) scenery_draw_shape(xol, Y, row, -1, 0xA, 0);
             if (L & 0x80) {
-                if (!cross && (L & 2)) scenery_draw_shape((s16)(add16(XFLp, XMIN) >> 1), Y, (s16)(row + 3), -1, u, 0);
-                else                   scenery_draw_shape(XOLp, Y, row, -1, u, 0);
+                if (!cross && (L & 2)) scenery_draw_shape(scene_half(scene_add(xfl, XMIN)), Y, (s16)(row + 3), -1, u, 0);
+                else                   scenery_draw_shape(xol, Y, row, -1, u, 0);
             }
         }
-        if ((MODE & 7) || Yq == YT2q) {
-            if (R & 0x40) scenery_draw_shape(XORp, Y, row, 1, 0xA, 0);
+        if (enh_replaying || (MODE & 7) || Yq == YT2q) {
+            if (R & 0x40) scenery_draw_shape(xor, Y, row, 1, 0xA, 0);
             if (R & 0x80) {
-                if (!cross && (R & 2)) scenery_draw_shape((s16)(add16(XFRp, XMAX) >> 1), Y, (s16)(row + 3), 1, u, 0);
-                else                   scenery_draw_shape(add16(XORp, (s16)(sub16(XORp, XRp) >> 1)), Y, row, 1, u, 0);
+                if (!cross && (R & 2)) scenery_draw_shape(scene_half(scene_add(xfr, XMAX)), Y, (s16)(row + 3), 1, u, 0);
+                else                   scenery_draw_shape(scene_add(xor, scene_half(scene_sub(xor, xr))), Y, row, 1, u, 0);
             }
         }
     }
     if (!cross) {
         if (cpu > 3) {
-            if ((MODE & 1) || Yq == YT1q) {
-                if (L & 4) scenery_draw_shape(sub16(XLp, 2), Y, row, -1, 7, 1);
-                if (L & 8) scenery_draw_shape(sub16(XLp, 2), Y, row, -1, 8, 1);
+            if (enh_replaying || (MODE & 1) || Yq == YT1q) {
+                if (L & 4) scenery_draw_shape(scene_sub(xl, 2), Y, row, -1, 7, 1);
+                if (L & 8) scenery_draw_shape(scene_sub(xl, 2), Y, row, -1, 8, 1);
             }
-            if ((MODE & 1) || Yq == YT2q) {
-                if (R & 4) scenery_draw_shape(add16(XRp, 2), Y, row, 1, 7, 1);
-                if (R & 8) scenery_draw_shape(add16(XRp, 2), Y, row, 1, 8, 1);
+            if (enh_replaying || (MODE & 1) || Yq == YT2q) {
+                if (R & 4) scenery_draw_shape(scene_add(xr, 2), Y, row, 1, 7, 1);
+                if (R & 8) scenery_draw_shape(scene_add(xr, 2), Y, row, 1, 8, 1);
             }
         }
     } else {
-        if (L & 0x40) scenery_draw_hydrant(XLp, Y, row, 1);
-        if (R & 0x40) scenery_draw_hydrant(XRp, Y, row, -1);
+        if (L & 0x40) scenery_draw_hydrant(xl, Y, row, 1);
+        if (R & 0x40) scenery_draw_hydrant(xr, Y, row, -1);
     }
-    if (!cross && (C & 2) && (MODE != 0x10 || Yq == YT2q) && !(MODE & 6))
-        scenery_draw_shape((s16)-((span >> 3) - XORp), Y, row, 1, 9, 0);
-    if (MODE != 0x10 && (R & 0x20)) scenery_draw_shape(XRp, Y, row, 1, 0, 0);
+    if (!cross && (C & 2) && (enh_replaying || MODE != 0x10 || Yq == YT2q) && !(MODE & 6))
+        scenery_draw_shape((enh_replaying ? xor - span / 8 : (s16)-(((s16)span >> 3) - xor)), Y, row, 1, 9, 0);
+    if (MODE != 0x10 && (R & 0x20)) scenery_draw_shape(xr, Y, row, 1, 0, 0);
     if (R & 0x100) {
-        if (cross) scenery_draw_shape(XRp, Y, row, 1, 4, 1);
-        else if (!(MODE == 0x10 && Yq != YT2q)) {
-            if (R & 0x200) scenery_draw_shape(sub16(shl16(XORp, 1), XRp), Y, (s16)(row + 3), 1, t, 1);
-            else           scenery_draw_shape(XORp, Y, row, 1, t, 1);
+        if (cross) scenery_draw_shape(xr, Y, row, 1, 4, 1);
+        else if (enh_replaying || !(MODE == 0x10 && Yq != YT2q)) {
+            if (R & 0x200) scenery_draw_shape(scene_sub(scene_twice(xor), xr), Y, (s16)(row + 3), 1, t, 1);
+            else           scenery_draw_shape(xor, Y, row, 1, t, 1);
         }
     }
-    if (R & 0x2000) scenery_draw_shape(XRp, Y, row, 1, 0x12, 0);
-    if (R & 0x4000) scenery_draw_shape(XRp, Y, row, 1, 0x13, 0);
-    if (R & 0x800)  scenery_draw_shape(XRp, Y, row, 1, 3, 0);
-    if (R & 0x1000) scenery_draw_shape(XRp, Y, row, -1, 6, 0);
+    if (R & 0x2000) scenery_draw_shape(xr, Y, row, 1, 0x12, 0);
+    if (R & 0x4000) scenery_draw_shape(xr, Y, row, 1, 0x13, 0);
+    if (R & 0x800)  scenery_draw_shape(xr, Y, row, 1, 3, 0);
+    if (R & 0x1000) scenery_draw_shape(xr, Y, row, -1, 6, 0);
     if (!(MODE & 6) && (R & 1)) {
-        if (!cross) { if (Yq == YT2q) scenery_draw_shape(XRp, Y, row, -1, 1, 1); }
-        else { road_fillmode_end(); scenery_draw_sign_picture(XRp, (s16)(add16(Y, YEp) >> 1), row, -1, 0, 1); road_fillmode_begin(); }
+        if (!cross) { if (enh_replaying || Yq == YT2q) scenery_draw_shape(xr, Y, row, -1, 1, 1); }
+        else { road_fillmode_end(); scenery_draw_sign_picture(xr, scene_half(scene_add(Y, ye)), row, -1, 0, 1); road_fillmode_begin(); }
     }
-    if (MODE == 0x10 && (R & 0x10)) scenery_draw_bush_group(XRp, Y, row, -1);
+    if (MODE == 0x10 && (R & 0x10)) scenery_draw_bush_group(xr, Y, row, -1);
     s16 x6 = (s16)fw(DS_x6_ptr, 0);
     if (MODE == 0x10 && (C & 4)) {                          /* rock */
         s16 s = x6 < 9 ? -1 : 1;
-        s16 x = (s16)(((s16)(x6 * span) >> 4) + XLp);
+        double x = scene_lane(xl, span, x6);
         scenery_draw_shape(x, Y, row, s, 7, 1);
         if (s == 1) s = 0;
         if (row == 1) DSS(DS_rock_hit) = obstacle_hit_test((s16)(s * 0x28 + x), 0x28, Y);
     }
     if (MODE == 0x10 && (C & 0x1000)) {
         s16 s = x6 < 9 ? -1 : 1;
-        s16 x = (s16)(((s16)(x6 * span) >> 4) + XLp);
+        double x = scene_lane(xl, span, x6);
         scenery_draw_shape(x, Y, row, s, 0x14, 1);
         if (s == 1) s = 0;
         if (row == 1) DSS(DS_obstacle14_hit) = obstacle_hit_test((s16)(s * 0x32 + x), 0x32, Y);
     }
     if ((C & 0xF000) && !(MODE & 0x16))
-        scenery_draw_banner(XLp, XRp, (s16)(YEp * 4 - Y * 3), Y, row, 0, (u16)(C & 0xF000));
-    if (C & 0x100) scenery_draw_shape(XRp, Y, row, 1, 5, 0);
-    if (C & 0x800) scenery_draw_shape(XRp, Y, row, 1, 0xF, 0);
-    if (C & 0x200) scenery_draw_shape(XRp, Y, row, 1, 0x10, 0);
-    if (C & 0x400) scenery_draw_shape(XRp, Y, row, 1, 0x11, 0);
+        scenery_draw_banner(xl, xr, (enh_replaying ? ye * 4 - Y * 3 : (s16)(ye * 4 - Y * 3)), Y, row, 0, (u16)(C & 0xF000));
+    if (C & 0x100) scenery_draw_shape(xr, Y, row, 1, 5, 0);
+    if (C & 0x800) scenery_draw_shape(xr, Y, row, 1, 0xF, 0);
+    if (C & 0x200) scenery_draw_shape(xr, Y, row, 1, 0x10, 0);
+    if (C & 0x400) scenery_draw_shape(xr, Y, row, 1, 0x11, 0);
     if ((MODE & 6) && sub16(DSS(DS_start_seg), DSS(DS_front_row_seg)) == -4)
-        road_draw_start_tree((s16)(add16(XRp, XLp) >> 1), Y, row);
+        road_draw_start_tree(scene_half(scene_add(xr, xl)), Y, row);
 }
 
 static void mulholland_extras_front(s16 row)
@@ -1253,16 +1476,23 @@ static void mulholland_extras_front(s16 row)
     if ((R & 0x8000) && !(C & 0x80)) guard_rail(row, -0x1E, 0xE, 0);
 }
 
+static void front_scenery(s16 row)
+{
+    /* Near and far scenery must use the same flags, anchors and bank rules. */
+    if (row < 11 || enh_replaying) front_objects(row);
+}
+
 /* 0dcb:6a32 road_draw_front */
 static void road_draw_front(void)
 {
     if (DSW(DS_fallen) != 0) return;
-    row_ptrs_init(14);
-    DSW(DS_dash_ptr) = (u16)(DS_dash_width + 28);
-    flag_ptrs(0x1C);
+    s16 last = (s16)enh_front_rows();
+    row_ptrs_init(last);
+    DSW(DS_dash_ptr) = (u16)(DS_dash_width + 2 * last);
+    flag_ptrs((s16)(2 * last));
     if (MODE & 6) DSS(DS_rail_phase_seg) = DSS(DS_start_seg);
     else {
-        for (s16 k = 14; k != 0; k--)
+        for (s16 k = last; k != 0; k--)
             if ((fw(DS_seg_right_ptr, k) & 0x8000) && !(fw(DS_seg_right_ptr, (s16)(k - 1)) & 0x8000)) {
                 DSS(DS_rail_phase_seg) = (s16)(DSS(DS_seg) + k);
                 break;
@@ -1272,16 +1502,18 @@ static void road_draw_front(void)
     if (MODE == 0x10) road_draw_sky_mulholland(); else road_draw_sky();
     road_fillmode_begin();
     s16 L16 = 0;
-    for (s16 k = 14; k > 9; k--)
+    for (s16 k = enh_replaying ? 0 : 14; k > 9; k--)
         if ((MODE & 0x10) && !(fw(DS_seg_centre_ptr, k) & 0x80) && (fw(DS_seg_centre_ptr, (s16)(k - 1)) & 0x80)) L16 = 1;
-    for (s16 row = 14; row != 0; row--) {
+    for (s16 row = last; row != 0; row--) {
         DSS(DS_front_row_seg) = (s16)(DSS(DS_seg) + row);
         u16 C = fw(DS_centre_ptr, 0);
         if ((MODE & 0x10) && !(C & 0x80)) front_hillsides(row, L16);
         if (row <= DSS(DS_top_band_row)) road_draw_row_front(row);
         C = fw(DS_centre_ptr, 0);
         if (!((C & 4) && (C & 1))) {
-            if (row < 11) front_objects(row);
+            /* One set of object types, anchors and bank rules at all distances.
+             * Nearer terrain is painted afterwards and occludes distant sprites. */
+            front_scenery(row);
             if (!(C & 1) && MODE == 0x10) mulholland_extras_front(row);
         }
         if (sub16(DSS(DS_opp_seg), row) == DSS(DS_seg) && DSB(DS_racing)) opponent_draw();
@@ -1325,68 +1557,73 @@ static void mirror_objects(s16 row, s16 d)
     u16 L = fw(DS_left_ptr, 0), R = fw(DS_right_ptr, 0), C = fw(DS_centre_ptr, 0);
     s16 cross = (s16)(C & 1);
     s16 cpu = DSS(DS_cpu_speed);
-    s16 Y = Yp, span = sub16(XRp, XLp);
+    double xl = precise_value(DS_rp_xl);
+    double xr = precise_value(DS_rp_xr);
+    double xol = precise_value(DS_rp_xol);
+    double xor = precise_value(DS_rp_xor);
+    double xfr = precise_value(DS_rp_xfr);
+    double Y = precise_value(DS_rp_y), span = scene_sub(xr, xl);
     s16 t = MODE == 0x10 ? 0x15 : 4, u = MODE == 0x10 ? 0x16 : 0xB;
-    if (MODE != 0x10 && (L & 0x20) && cpu > 3) scenery_draw_shape(XLp, Y, d, -1, 0, 0);
+    if (MODE != 0x10 && (L & 0x20) && cpu > 3) scenery_draw_shape(xl, Y, d, -1, 0, 0);
     if (L & 0x100) {
-        if (cross) scenery_draw_shape(XLp, Y, d, -1, 4, 1);
+        if (cross) scenery_draw_shape(xl, Y, d, -1, 4, 1);
         else if (!(MODE == 0x10 && Yq != YT1q))
-            scenery_draw_shape((L & 0x200) ? sub16(shl16(XOLp, 1), XLp) : XOLp, Y, d, -1, t, 1);
+            scenery_draw_shape((L & 0x200) ? scene_sub(scene_twice(xol), xl) : xol, Y, d, -1, t, 1);
     }
-    if (!(MODE & 7) && (L & 0x800))  scenery_draw_shape(XLp, Y, d, -1, 3, 0);
-    if (!(MODE & 7) && (L & 0x1000)) scenery_draw_shape(XLp, Y, d, 1, 6, 0);
-    if (!(MODE & 6) && (L & 1) && Yq == YT1q) scenery_draw_shape(XLp, Y, d, 1, 1, 1);
-    if (!(MODE & 6) && (R & 1) && Yq == YT2q) scenery_draw_shape(XRp, Y, d, -1, 1, 1);
+    if (!(MODE & 7) && (L & 0x800))  scenery_draw_shape(xl, Y, d, -1, 3, 0);
+    if (!(MODE & 7) && (L & 0x1000)) scenery_draw_shape(xl, Y, d, 1, 6, 0);
+    if (!(MODE & 6) && (L & 1) && Yq == YT1q) scenery_draw_shape(xl, Y, d, 1, 1, 1);
+    if (!(MODE & 6) && (R & 1) && Yq == YT2q) scenery_draw_shape(xr, Y, d, -1, 1, 1);
     if (cpu > 3) {
         if ((MODE & 7) || Yq == YT1q) {
-            if (L & 0x40) scenery_draw_shape(XOLp, Y, d, -1, 0xA, 0);
-            if (L & 0x80) scenery_draw_shape((!cross && (L & 2)) ? (s16)(add16(XOLp, XMIN) >> 1) : XOLp, Y, d, -1, u, 0);
+            if (L & 0x40) scenery_draw_shape(xol, Y, d, -1, 0xA, 0);
+            if (L & 0x80) scenery_draw_shape((!cross && (L & 2)) ? scene_half(scene_add(xol, XMIN)) : xol, Y, d, -1, u, 0);
         }
         if ((MODE & 7) || Yq == YT2q) {
-            if (R & 0x40) scenery_draw_shape(XORp, Y, d, 1, 0xA, 0);
-            if (R & 0x80) scenery_draw_shape((!cross && (R & 2)) ? (s16)(add16(XFRp, XMAX) >> 1) : XORp, Y, d, 1, u, 0);
+            if (R & 0x40) scenery_draw_shape(xor, Y, d, 1, 0xA, 0);
+            if (R & 0x80) scenery_draw_shape((!cross && (R & 2)) ? scene_half(scene_add(xfr, XMAX)) : xor, Y, d, 1, u, 0);
         }
     }
-    if ((MODE & 0x10) && (L & 0x10)) scenery_draw_bush_group(XLp, Y, d, 1);
-    if ((MODE & 0x10) && (R & 0x10)) scenery_draw_bush_group(XRp, Y, d, -1);
+    if ((MODE & 0x10) && (L & 0x10)) scenery_draw_bush_group(xl, Y, d, 1);
+    if ((MODE & 0x10) && (R & 0x10)) scenery_draw_bush_group(xr, Y, d, -1);
     if (!cross) {
         if (cpu > 3) {
             if ((MODE & 1) || Yq == YT1q) {
-                if (L & 4) scenery_draw_shape(XLp, Y, d, -1, 7, 1);
-                if (L & 8) scenery_draw_shape(XLp, Y, d, -1, 8, 1);
+                if (L & 4) scenery_draw_shape(xl, Y, d, -1, 7, 1);
+                if (L & 8) scenery_draw_shape(xl, Y, d, -1, 8, 1);
             }
             if ((MODE & 1) || Yq == YT2q) {
-                if (R & 4) scenery_draw_shape(XRp, Y, d, 1, 7, 1);
-                if (R & 8) scenery_draw_shape(XRp, Y, d, 1, 8, 1);
+                if (R & 4) scenery_draw_shape(xr, Y, d, 1, 7, 1);
+                if (R & 8) scenery_draw_shape(xr, Y, d, 1, 8, 1);
             }
         }
     } else {
-        if (L & 0x40) scenery_draw_hydrant(XLp, Y, d, -1);
-        if (R & 0x40) scenery_draw_hydrant(XRp, Y, d, 1);
+        if (L & 0x40) scenery_draw_hydrant(xl, Y, d, -1);
+        if (R & 0x40) scenery_draw_hydrant(xr, Y, d, 1);
     }
     if (!cross && (C & 2) && (MODE != 0x10 || Yq == YT2q) && !(MODE & 6))
-        scenery_draw_shape((s16)-((span >> 3) - XORp), Y, d, 1, 9, 0);
-    if (MODE != 0x10 && (R & 0x20)) scenery_draw_shape(XRp, Y, d, 1, 0, 0);
+        scenery_draw_shape((enh_replaying ? xor - span / 8 : (s16)-(((s16)span >> 3) - xor)), Y, d, 1, 9, 0);
+    if (MODE != 0x10 && (R & 0x20)) scenery_draw_shape(xr, Y, d, 1, 0, 0);
     if (R & 0x100) {
-        if (cross) scenery_draw_shape(XRp, Y, d, 1, 4, 1);
+        if (cross) scenery_draw_shape(xr, Y, d, 1, 4, 1);
         else if (!(MODE == 0x10 && Yq != YT2q))
-            scenery_draw_shape((R & 0x200) ? sub16(shl16(XORp, 1), XRp) : XORp, Y, d, 1, t, 1);
+            scenery_draw_shape((R & 0x200) ? scene_sub(scene_twice(xor), xr) : xor, Y, d, 1, t, 1);
     }
-    if (R & 0x2000) scenery_draw_shape(XRp, Y, d, 1, 0x12, 0);
-    if (R & 0x4000) scenery_draw_shape(XRp, Y, d, 1, 0x13, 0);
-    if (R & 0x800)  scenery_draw_shape(XRp, Y, d, 1, 3, 0);
-    if (R & 0x1000) scenery_draw_shape(XRp, Y, d, -1, 6, 0);
+    if (R & 0x2000) scenery_draw_shape(xr, Y, d, 1, 0x12, 0);
+    if (R & 0x4000) scenery_draw_shape(xr, Y, d, 1, 0x13, 0);
+    if (R & 0x800)  scenery_draw_shape(xr, Y, d, 1, 3, 0);
+    if (R & 0x1000) scenery_draw_shape(xr, Y, d, -1, 6, 0);
     s16 x6 = (s16)fw(DS_x6_ptr, 0);
     if (!(MODE & 7) && (C & 4))
-        scenery_draw_shape((s16)(((s16)(x6 * span) >> 4) + XLp), Y, d, x6 < 9 ? -1 : 1, 7, 1);
+        scenery_draw_shape(scene_lane(xl, span, x6), Y, d, x6 < 9 ? -1 : 1, 7, 1);
     if (MODE == 0x10 && (C & 0x1000))
-        scenery_draw_shape((s16)(((s16)(x6 * span) >> 4) + XLp), Y, d, x6 < 9 ? -1 : 1, 0x14, 1);
-    if (C & 0x100) scenery_draw_shape(XRp, Y, d, 1, 5, 0);
-    if (C & 0x200) scenery_draw_shape(XRp, Y, d, 1, 0x10, 0);
-    if (C & 0x400) scenery_draw_shape(XRp, Y, d, 1, 0x11, 0);
-    if (C & 0x800) scenery_draw_shape(XRp, Y, d, 1, 0xF, 0);
+        scenery_draw_shape(scene_lane(xl, span, x6), Y, d, x6 < 9 ? -1 : 1, 0x14, 1);
+    if (C & 0x100) scenery_draw_shape(xr, Y, d, 1, 5, 0);
+    if (C & 0x200) scenery_draw_shape(xr, Y, d, 1, 0x10, 0);
+    if (C & 0x400) scenery_draw_shape(xr, Y, d, 1, 0x11, 0);
+    if (C & 0x800) scenery_draw_shape(xr, Y, d, 1, 0xF, 0);
     if ((MODE & 0x11) && sub16(DSS(DS_seg), row) == DSS(DS_starter_seg))
-        starter_draw_mirror((s16)(add16(XRp, XLp) >> 1), Y, (s16)(row - 1));
+        starter_draw_mirror(scene_half(scene_add(xr, xl)), Y, (s16)(row - 1));
 }
 
 static void mulholland_extras_mirror(s16 row)
@@ -1416,7 +1653,9 @@ static void road_draw_mirror(void)
         u16 C = fw(DS_centre_ptr, 0);
         if (!((C & 4) && (C & 1))) {
             if ((C & 0xF000) && !(MODE & 0x16))
-                scenery_draw_banner(XLp, XRp, (s16)(YEp * 4 - Yp * 3), Yp, (s16)(row + 5), 1, (u16)(C & 0xF000));
+                scenery_draw_banner(precise_value(DS_rp_xl), precise_value(DS_rp_xr),
+                    enh_replaying ? precise_value(DS_rp_ye) * 4 - precise_value(DS_rp_y) * 3 : (s16)(YEp * 4 - Yp * 3),
+                    precise_value(DS_rp_y), (s16)(row + 5), 1, (u16)(C & 0xF000));
             if (row < 7) mirror_objects(row, (s16)((row >> 1) + 7));
             if (!(C & 1) && MODE == 0x10) mulholland_extras_mirror(row);
         }
@@ -1431,7 +1670,7 @@ static void road_draw_mirror(void)
 /* ================================================================================ frame, step */
 
 /* 0dcb:11fc road_frame */
-void road_frame(void)
+void road_render(void)
 {
     if (MODE == 8) aq_project_front();
     else { road_set_seg_ptrs(DSS(DS_seg)); road_project_front(); }
@@ -1451,6 +1690,12 @@ void road_frame(void)
     road_draw_hood_overlay();
     if (DSB(DS_racing) && !(MODE & 6)) road_draw_starter_slide();
     road_draw_cockpit_overlay();
+}
+
+void road_frame(void)
+{
+    enh_capture();
+    road_render();
     road_page_flip();
     pace_ticks(8);
 }
@@ -1494,22 +1739,26 @@ void road_advance_segment(void)
 s16 road_edge_collision(void)
 {
     if (MODE == 8) return aq_wall_collision();
+    if (enh_recovering()) return 0;
+    enh_slow_strip();
     DSW(DS_on_shoulder) = 0;
     s16 l = sub16(DSS(DS_cam_x), 0x1E), r = add16(DSS(DS_cam_x), 0x46), s = DSS(DS_seg);
     u16 c = TRKW(TRK_C, s + 1), rr = TRKW(TRK_R, s + 1);
     s16 bl = TRKS(TRK_BL, s), br = TRKS(TRK_BR, s);
     s16 w = MODE == 0x10 ? 0x96 : 0x104;
     s16 eL = DSS(DS_edge_left), eR = DSS(DS_edge_right);
-    if (bl > 0 && l < sub16(eL, (s16)(w >> 2))) return 1;
-    if (br > 0 && r > add16(eR, (s16)(w >> 1))) return 1;
+    if (bl > 0 && l < sub16(eL, (s16)(w >> 2))) return enh_contact(-1, false);
+    if (br > 0 && r > add16(eR, (s16)(w >> 1))) return enh_contact(1, false);
     if (l <= sub16(eL, w) || r >= add16(eR, w)) {
         if (!(MODE & 0x10)) return 1;
-        if (DSS(DS_fall_dir)) return 1;
+        if (DSS(DS_fall_dir)) return enh_cliff_recover();
         if (l < eL && bl < 0) DSS(DS_fall_dir) = -1;
         if (r > eR && br < 0) DSS(DS_fall_dir) = 1;
-        return 1;
+        if (DSS(DS_fall_dir)) return enh_cliff_recover();
+        return enh_contact(l < eL ? -1 : 1, false);
     }
-    if ((c & 0x80) && (l < add16(eL, (s16)(w >> 2)) || r > sub16(eR, (s16)(w >> 1)))) return 1;
+    if ((c & 0x80) && (l < add16(eL, (s16)(w >> 2)) || r > sub16(eR, (s16)(w >> 1))))
+        return enh_easy_race() ? enh_cliff_recover() : 1;
     s16 shoulder = 0;
     if (bl == 0 && l < eL) shoulder = 1;
     else if (br == 0 && r > eR) { if (c & 2) return 1; shoulder = 1; }
@@ -1517,6 +1766,7 @@ s16 road_edge_collision(void)
     if (MODE == 0x10) {
         if (DSS(DS_rock_hit)) {
             DSS(DS_rock_hit) = 0;
+            if (enh_easy_race()) return enh_contact(DSS(DS_cam_x) < (eL + eR) / 2 ? -1 : 1, true);
             if (DSS(DS_speedo_shown) > 0x1E) { if (!DSW(DS_demo) && !DSW(DS_auto_drive)) return 1; opp_gear(0x1E, PLAYER); }
         }
         if (DSS(DS_obstacle14_hit)) {
@@ -1526,8 +1776,9 @@ s16 road_edge_collision(void)
         }
         if ((TRKW(TRK_L, s) & 0x10) && l < 0x79E) return 1;
         if ((TRKW(TRK_R, s) & 0x10) && r > 0xB22) return 1;
-        if ((c & 0x60) && DSS(DS_speedo_shown) > 0x3C) { if (!DSW(DS_demo) && !DSW(DS_auto_drive)) return 1; opp_gear(0x3C, PLAYER); }
-        if (!(rr & 0x8000) || r < eR) return 0;
+        if (!enh_easy_race() && (c & 0x60) && DSS(DS_speedo_shown) > 0x3C) { if (!DSW(DS_demo) && !DSW(DS_auto_drive)) return 1; opp_gear(0x3C, PLAYER); }
+        if (!(rr & 0x8000) || r < eR) { enh_safe_position(); return 0; }
+        if (enh_easy_race()) return enh_contact(1, false);
         if (DSS(DS_speedo_shown) >= 0x28) return 1;
         sound_vec(SND_SCREECH); sound_vec(SND_SCREECH);
         DSS(DS_cam_x) = sub16(DSS(DS_cam_x), 300);

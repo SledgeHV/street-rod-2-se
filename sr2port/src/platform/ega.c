@@ -1,3 +1,4 @@
+#include "enhanced/enhanced.h"
 #include "platform/ega.h"
 
 #include <string.h>
@@ -18,7 +19,9 @@ const u32 ega_palette[16] = {
 
 static bool compose(u32 *xrgb)
 {
-    if (!dirty) return false;
+    /* Enhanced output changes between original game frames. */
+    if (!dirty && !enh_enabled) return false;
+    bool changed = dirty;
     dirty = false;
     u32 rgb[16];
     for (int i = 0; i < 16; i++) {
@@ -38,7 +41,9 @@ static bool compose(u32 *xrgb)
             }
         }
     }
-    return true;
+    bool smooth = enh_compose(xrgb, rgb, start_addr, line_compare);
+    dirty = false; /* the replay touched scratch planes, already restored */
+    return changed || smooth;
 }
 
 void ega_show(void)

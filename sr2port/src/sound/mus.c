@@ -9,9 +9,8 @@
  * rate and chains the game ISR when its 0x4000 accumulator expires, with the remainder discarded. The game
  * tick is then 68.6 Hz (tempo 120) / 60 Hz (tempo 60) instead of 72.8 Hz.
  *
- * PORT: verify U5 - at the end of a song the next song's first delay (0) is returned raw by mus_tick, so the
- * countdown wraps and the next mus_tick runs 65 536 music interrupts later (136 s at 480 Hz): the ~2 min
- * silence between playlist entries that sound.md 7.2 / 9 derive from the code. Kept as the code does it. */
+ * Enhanced: clamp the first delay after a playlist transition just as mus_play does.
+ * A zero countdown otherwise wraps to 65535, leaving over two minutes of silence. */
 #include "sound/snd_int.h"
 
 #include <stdio.h>
@@ -266,7 +265,7 @@ static int mus_tick(void)
                     adlib_set_bend_range(m->hdr[0x3B]);
                     mus_set_tempo(hdr_tempo(m), m->hdr[0x24]);
                     mus_delay = *rd++;
-                    return mus_delay;               /* raw, no F8 / 0 handling (see the PORT note at the top) */
+                    return mus_delay > 1 ? mus_delay : 1;
                 }
             }
             mus_stop();

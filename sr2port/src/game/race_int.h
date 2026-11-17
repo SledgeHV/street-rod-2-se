@@ -208,11 +208,12 @@ s16  track_lane_x(s16 seg);                                  /* 0dcb:1470 */
 
 /* race_road.c */
 void road_set_seg_ptrs(s16 seg);                             /* 0dcb:056a */
-s16  road_proj_x(s16 z, s16 x, s16 dx);                      /* 0dcb:062c */
-s16  road_proj_y(s16 z, s16 y, s16 dy);                      /* 0dcb:0684 */
-s16  road_proj_x_mirror(s16 z, s16 x, s16 dx);               /* 0dcb:06ba */
-s16  road_proj_y_mirror(s16 z, s16 y, s16 dy);               /* 0dcb:070e */
+s16  road_proj_x(double z, double x, double dx);                /* 0dcb:062c */
+s16  road_proj_y(double z, double y, double dy);                /* 0dcb:0684 */
+s16  road_proj_x_mirror(double z, double x, double dx);         /* 0dcb:06ba */
+s16  road_proj_y_mirror(double z, double y, double dy);         /* 0dcb:070e */
 void road_state_init(void);                                  /* 0dcb:0736 */
+void road_render(void); /* drawing only; replayed in isolated state for enhanced frames */
 void road_frame(void);                                       /* 0dcb:11fc */
 void road_advance_segment(void);                             /* 0dcb:12ca */
 s16  road_edge_collision(void);                              /* 0dcb:148a */
@@ -228,7 +229,7 @@ void clip_set_view(void);                                    /* 0dcb:36f0 */
 void mirror_bg_prepare(s16 with_sky);                        /* 0dcb:370a */
 void road_load_graphics(void);                               /* 0dcb:37ce */
 void shape_draw_dot(s16 x, s16 y);                           /* 0dcb:512e */
-void scenery_draw_shape(s16 x, s16 y, s16 depth, s16 side, s16 type, s16 noclamp);   /* 0dcb:5158 */
+void scenery_draw_shape(double x, double y, s16 depth, s16 side, s16 type, s16 noclamp);   /* 0dcb:5158 */
 void road_poly_fill(const s16 *pts12, s16 n, s16 colour);    /* 0dcb:58f4 */
 void road_fall_off_edge(s16 dir);                            /* 0dcb:7da2 */
 FarPtr back_page(void);                                      /* DS:7E02 == 1 ? page 1 : page 2 */

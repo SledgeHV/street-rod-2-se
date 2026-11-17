@@ -1,3 +1,4 @@
+#include "enhanced/enhanced.h"
 /* VGA register model — video.md §4.1, §4.3, §6 (see vga.h). */
 #include "platform/vga.h"
 
@@ -134,6 +135,7 @@ u8 vga_rd(u16 off)
 
 void vga_wr(u16 off, u8 v)
 {
+    if (vga.map_mask) enh_vram_write(off);
     for (int k = 0; k < 4; k++) {
         if (!(vga.map_mask >> k & 1)) continue;
         u8 *p = &ega_plane(k)[off];

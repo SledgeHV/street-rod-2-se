@@ -1,3 +1,4 @@
+#include "enhanced/enhanced.h"
 /* Opponent sprite and start props of race_render segment 0dcb (port/spec/race_render.md):
  *
  *   0dcb:a5aa start_props_load     0dcb:a746 road_draw_starter_slide   0dcb:a85c starter_draw_mirror
@@ -78,7 +79,8 @@ void starter_draw_mirror(s16 x, s16 y, s16 row)
 /* 0dcb:aab0 road_draw_start_tree: drag-strip "Christmas tree" with the lamp states DS:A7A2 */
 void road_draw_start_tree(s16 x, s16 ybase, s16 row)
 {
-    static Rect r;                                  /* PORT: uninitialised in the original for rows < 0 or > 4 */
+    static Rect remembered;
+    Rect r = remembered;                                  /* PORT: uninitialised in the original for rows < 0 or > 4 */
     road_fillmode_end();
     if (row >= 0) {
         if (row < 2)                 { r.w = 0x38; r.h = 0x57; r.sx = 0x48; }
@@ -116,6 +118,7 @@ void road_draw_start_tree(s16 x, s16 ybase, s16 row)
             }
     }
     DSW(DS_start_lights) = 0;
+    if (!enh_replaying) remembered = r;
     Rect d = r;
     s16 t = (s16)(ybase - d.h + 1);
     if (t < DSS(DS_clip_ymin)) { d.dy = DSS(DS_clip_ymin); d.sy = (s16)(DSS(DS_clip_ymin) - t); d.h = (s16)(d.h - d.sy); }
@@ -154,7 +157,7 @@ void opponent_draw(void)
         }
     }
     s16 p = DSS(DS_opp_sprite), s;
-    if (d >= 0x3C0) s = -1;
+    if (d >= 0x3C0) s = enh_replaying && d <= ENH_SCENERY_ROWS * 64 ? 8 : -1;
     else if (d >= 0x80) { s = (s16)(((s16)(d + 0x40) >> 7) + 2); if (s > 8) s = 8; }
     else if (d < -0x38) s = (s16)(((s16)(0x80 - d) >> 7) + 8);
     else if (d <= 0x40) {
@@ -213,15 +216,21 @@ void opponent_draw(void)
         dx = sub16(DSS(DS_heading), TRKS(TRK_YAW, oseg));
     }
     s16 sx, sy;
+    /* Use the same continuous depth for the anchor and sprite size. In the
+     * Aqueduct this anchor is also rotated about the road's bank centre. */
+    bool smooth = enh_replaying && s >= 2 && !(s == 2 && DSW(DS_opp_alongside))
+        && !DSW(DS_opp_contact) && res != 3;
     if (s < 9) {
         z = (s16)(abs16(z) + 4);
-        sx = road_proj_x(z, DSS(DS_opp_lat), dx);
-        sy = road_proj_y(z, wy, dy);
+        double depth = smooth ? enh_opponent_depth(false) : z;
+        sx = road_proj_x(depth, DSS(DS_opp_lat), dx);
+        sy = road_proj_y(depth, wy, dy);
         if (s == 2 && sx > 0x13F && DSS(DS_opp_last_sx) < 200) sx = (s16)((sx + DSS(DS_opp_last_sx)) / 2);
     } else {
         z = (s16)-z;
-        sx = road_proj_x_mirror(z, DSS(DS_opp_lat), (s16)(10 - dx));
-        sy = road_proj_y_mirror(z, wy, (s16)-dy);
+        double depth = smooth ? enh_opponent_depth(true) : z;
+        sx = road_proj_x_mirror(depth, DSS(DS_opp_lat), (s16)(10 - dx));
+        sy = road_proj_y_mirror(depth, wy, (s16)-dy);
     }
     s16 row = (s16)((z + 1) >> 3);
     if ((s == 2 || s == 3) && sy > 100) sy = 100;
@@ -235,6 +244,7 @@ void opponent_draw(void)
         sx = (s16)(sx - adx);
         sy = (s16)(sy + ady);
     }
+    if (enh_opponent(s, sx, sy)) return;
     DSS(DS_opp_last_sx) = sx;
     r.sx = 0; r.sy = 0;
     if (s == 0) {

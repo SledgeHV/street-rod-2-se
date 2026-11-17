@@ -1,3 +1,4 @@
+#include "enhanced/enhanced.h"
 /* Race: drive entry points and the frame loop (port/spec/race.md, checked against the decompile / disassembly).
  *
  *   0001:8c68 drive_to_event   0001:8d0a opp_palette_set   0001:8d9e drive_run   0001:8ef4 race_logic
@@ -301,6 +302,7 @@ s16 race_run(void)
 {
     const u16 p = PLAYER;
     s16 shown_rpm = 0, shown_speed = 0, res;
+    int shown_recovery = 0;
     s16 dash_w = 0;
     arena_clear();
     do {
@@ -357,6 +359,8 @@ s16 race_run(void)
         DSW(DS_split_row) = 0;
     if (MODE & 6) DSW(DS_start_lights) = MODE == 2 ? 0x88 : 0x92;
     road_pages_init();
+    enh_difficulty_reset();
+    enh_begin();
     road_frame();
     drv_pal_normal();
     if (MODE == 4) {
@@ -384,6 +388,13 @@ s16 race_run(void)
         res = (s16)race_logic();
         s16 w = PHS(p, PH_WHEEL);
         if (res != 0) break;
+        int recovery = enh_recovery_seconds();
+        if (recovery != shown_recovery) {
+            char message[40] = "";
+            if (recovery) snprintf(message, sizeof message, "Back on road in %d...", recovery);
+            status_print(-1, message, 0);
+            shown_recovery = recovery;
+        }
         if (PHW(p, PH_GEAR_DIRTY) != 0) shifter_knob(ds_far(DS_page0_ptr), p);
         if (abs16((s16)(PHS(p, PH_SPEED) - shown_speed)) > 1) shown_speed = needle_update(PHS(p, PH_SPEED), shown_speed, 0);
         if (DSW(DS_has_clock) == 0 && abs16((s16)(PHS(p, PH_RPM) - shown_rpm)) > 1)
@@ -394,6 +405,7 @@ s16 race_run(void)
         }
     }
     if (getenv("SR_TRACE")) fprintf(stderr, "trace: %ldms race_run end %d seg %d opp %d\n", (long)clock(), res, DSS(DS_seg), DSS(DS_opp_seg));   /* PORT: developer aid */
+    enh_end();
     arena_reset();
     DSW(DS_arena2_used) = 0;
     FarPtr shown = DSS(DS_back_page) == 1 ? ds_far(DS_page2_ptr) : ds_far(DS_page1_ptr);

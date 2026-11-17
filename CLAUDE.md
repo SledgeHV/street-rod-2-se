@@ -1,5 +1,11 @@
 # Street Rod 2 port — agent rules (keep this file short: it is loaded every session)
 
+**Local fork scope (user request, 2026-11-17):** this checkout implements smooth
+native-resolution driving and easier controls. `ENHANCED.md` describes the changes
+and validation. The upstream "faithful only" / "Enhanced later" rules below do not
+apply to this authorized fork. Preserve `--classic`; do not include `game_original/`
+or other original game data in commits. Reference clones live in ignored `.reference/`.
+
 Faithful C/SDL3 port of California Dreams' *Street Rod 2: The Next Generation* (1991), a **delta
 port** of the Street Rod engine already done in `../StreetRod` (RE → formats → specs → port).
 State and subtasks: `PLAN.md`.

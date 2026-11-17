@@ -1,3 +1,4 @@
+#include "enhanced/enhanced.h"
 /* The Aqueduct race (road mode 8) of race_render (port/spec/race_render.md §1.6, §1.7, 0dcb:18ec-1cd2, 8288-c342):
  * the concrete channel renderer with the roll rotation, the wall bounce, the obstacle probe, the rotated opponent
  * sprites, the night sky and the lane AI (0001:d2a8).
@@ -173,10 +174,10 @@ void aq_project_front(void)
     DSS(DS_aq_car_xr) = add16(DSS(DS_cam_x), 0x208);
     DSS(DS_aq_car_sxl) = road_proj_x(4, DSS(DS_aq_car_xl), DSS(DS_aq_dx));
     DSS(DS_aq_car_sxr) = road_proj_x(4, DSS(DS_aq_car_xr), DSS(DS_aq_dx));
-    s16 f = q_shr(DSS(DS_substep), 3), z = 4;
+    double f = enh_substep(), z = 4;
     for (s16 i = 0; i < 15; i++) {                 /* z: 4, 12-f, +8 ...; row 12 adds f -> rows 12..14 = 100,108,116 */
-        if (i == 1) z = (s16)(12 - f);
-        if (i == 12) z = (s16)(z + f);
+        if (i == 1) z = 12 - f;
+        if (i == 12) z += f;
         dy = DSS(DS_aq_dy); dx = DSS(DS_aq_dx);
         RW(A_Y, i)   = road_proj_y(z, (s16)(DSS(DS_aq_def_floor_h) + 2000), dy);
         RW(A_XL, i)  = road_proj_x(z, (s16)(DSS(DS_aq_def_xl) + 0x5C8), dx);
@@ -185,9 +186,9 @@ void aq_project_front(void)
         RW(A_YT, i)  = road_proj_y(z, (s16)(DSS(DS_aq_def_top_h) + 0x67C), dy);
         RW(A_XTL, i) = road_proj_x(z, (s16)(DSS(DS_aq_def_top_xl) + 0x438), dx);
         RW(A_XTR, i) = road_proj_x(z, (s16)(DSS(DS_aq_def_top_xr) + 0xE88), dx);
-        z = (s16)(z + 8);
+        z += 8;
     }
-    z = (s16)(z - 8);
+    z -= 8;
     DSS(DS_aq_trough_far_xl) = road_proj_x(z, (s16)(mid + DSS(DS_aq_def_xl) - 0x28), DSS(DS_aq_dx));
     DSS(DS_aq_trough_far_xr) = road_proj_x(z, (s16)(mid + DSS(DS_aq_def_xr) + 0x28), DSS(DS_aq_dx));
     DSS(DS_aq_trough_near_y) = RW(A_Y, 0);
@@ -202,10 +203,10 @@ void aq_project_mirror(void)
     s16 mid = (s16)((s16)(xr + xl + 0x12C0) >> 1);
     DSS(DS_aq_trough_near_xl) = road_proj_x_mirror(2, (s16)(mid + xl - 0x28), dx);
     DSS(DS_aq_trough_near_xr) = road_proj_x_mirror(2, (s16)(xr + mid + 0x28), dx);
-    s16 f = q_shr(DSS(DS_substep), 3), z = 2;
+    double f = enh_substep(), z = 2;
     for (s16 i = 0; i < 8; i++) {                  /* z: 2, 8+f, +8 ...; row 5 subtracts f -> rows 5..7 = 40,48,56 */
-        if (i == 1) z = (s16)(f + 8);
-        if (i == 5) z = (s16)(z - f);
+        if (i == 1) z = f + 8;
+        if (i == 5) z -= f;
         RW(A_Y, i)   = road_proj_y_mirror(z, (s16)(DSS(DS_aq_saved_floor_h) + 2000), dy);
         RW(A_XL, i)  = road_proj_x_mirror(z, (s16)(DSS(DS_aq_saved_xl) + 0x5C8), dx);
         RW(A_XR, i)  = road_proj_x_mirror(z, (s16)(DSS(DS_aq_saved_xr) + 0xCF8), dx);
@@ -213,9 +214,9 @@ void aq_project_mirror(void)
         RW(A_YT, i)  = road_proj_y_mirror(z, (s16)(DSS(DS_aq_saved_top_h) + 0x67C), dy);
         RW(A_XTL, i) = road_proj_x_mirror(z, (s16)(DSS(DS_aq_wall_l_shift) + 0x438), dx);
         RW(A_XTR, i) = road_proj_x_mirror(z, (s16)(DSS(DS_aq_wall_r_shift) + 0xE88), dx);
-        z = (s16)(z + 8);
+        z += 8;
     }
-    z = (s16)(z - 8);
+    z -= 8;
     DSS(DS_aq_trough_far_xl) = road_proj_x_mirror(z, (s16)(mid + DSS(DS_aq_saved_xl) - 0x28), dx);
     DSS(DS_aq_trough_far_xr) = road_proj_x_mirror(z, (s16)(mid + DSS(DS_aq_saved_xr) + 0x28), dx);
     DSS(DS_aq_trough_near_y) = RW(A_Y, 0);
@@ -227,6 +228,7 @@ void aq_project_mirror(void)
 /* 0dcb:8482 aq_draw_row_shape: group of SR2_SHP set 23 + set */
 static void aq_draw_row_shape(s16 x, s16 y, s16 row, s16 set)
 {
+    if (enh_aq_shape(x, y, row, ds_far((u16)(DS_shp_b_ptrs + 4 * set)))) return;
     s16 group = NROWS == 14 ? (s16)((s16)(row + 1) >> 1) : (s16)((row >> 1) + 6);
     shp_b_draw(x, y, group, ds_far((u16)(DS_shp_b_ptrs + 4 * set)));
 }

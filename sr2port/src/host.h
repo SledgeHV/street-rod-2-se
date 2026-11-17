@@ -7,6 +7,7 @@
 #define PIT_HZ        1193182u
 #define PIT_DIV_GAME  0x4000u        /* 16384 -> 72.82 Hz, timer install 0000:1111 (RE_GUIDE.md) */
 
+void host_set_presentation(int fps, bool vsync);
 bool host_init(const char *game_dir, int window_scale, bool fullscreen);
 void host_shutdown(void);
 
@@ -78,7 +79,9 @@ void host_port61(u8 value);                 /* out 61h */
 u8   host_port61_get(void);                 /* in 61h: the last value written */
 /* ---- AdLib (OPL2, port 388h/389h): Nuked-OPL3 mixed into the same audio stream, one chip sample per output
  * sample (49716 Hz). host_opl_write is stamped at the emulated time of the caller (tick or busy wait).
- * SR_AUDIO_WAV=file.wav (or SR_AUDIO_DUMP) writes the mixed output (mono s16) to a WAV file. */
+ * Writes then pass through Nuked's two-sample settling queue to preserve off/on edges.
+ * SR_AUDIO_WAV=file.wav (or SR_AUDIO_DUMP) writes the mixed output (mono s16) to a WAV file.
+ * SR_AUDIO_STATS=1 logs queued milliseconds, empty-queue observations and dropped samples. */
 void host_opl_enable(bool on);              /* adlib_sound_init: reset the chip and start rendering it */
 void host_opl_write(u8 reg, u8 value);
 /* The original's busy loops (0f38 delay 2196:0002 and the code around it): advances the emulated

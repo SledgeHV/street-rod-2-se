@@ -48,6 +48,13 @@ static bool (*pointer_query)(s16 *x, s16 *y);
 static u8 script_buttons;                   /* buttons held by the script, OR'd into host_mouse_read */
 
 static void process_events(void);
+static Uint64 frame_interval_ns = SDL_NS_PER_SECOND / 60;
+static bool use_vsync = true;
+void host_set_presentation(int fps, bool vsync)
+{
+    frame_interval_ns = SDL_NS_PER_SECOND / (Uint64)SDL_clamp(fps, 30, 240);
+    use_vsync = vsync;
+}
 
 bool host_init(const char *dir, int window_scale, bool fullscreen)
 {
@@ -57,21 +64,21 @@ bool host_init(const char *dir, int window_scale, bool fullscreen)
     }
     game_dir = SDL_strdup(dir);
     if (window_scale < 1) window_scale = 3;
-    if (!SDL_CreateWindowAndRenderer("Street Rod 2", 320 * window_scale, 240 * window_scale,
+    if (!SDL_CreateWindowAndRenderer("Street Rod 2 Enhanced", 320 * window_scale, 240 * window_scale,
                                      SDL_WINDOW_RESIZABLE, &window, &renderer)) {
         fprintf(stderr, "window/renderer failed: %s\n", SDL_GetError());
         return false;
     }
-    SDL_SetRenderVSync(renderer, 1);
+    SDL_SetRenderVSync(renderer, use_vsync ? 1 : 0);
     if (fullscreen) SDL_SetWindowFullscreen(window, true);
     host_set_frame_source(NULL, 320, 200);
 
     SDL_AudioSpec spec = { SDL_AUDIO_S16, 1, AUDIO_RATE };
     audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
     if (audio) {
-        SDL_ResumeAudioStreamDevice(audio);
-        static s16 silence[AUDIO_RATE / 20 * 2];           /* 50 ms of lead-in against underruns */
+        static const s16 silence[AUDIO_RATE / 10];       /* 100 ms, queued before starting playback */
         SDL_PutAudioStreamData(audio, silence, sizeof silence);
+        SDL_ResumeAudioStreamDevice(audio);
     } else {
         fprintf(stderr, "audio unavailable: %s\n", SDL_GetError());
     }
@@ -192,10 +199,19 @@ static void wav_header(FILE *f, u32 samples)     /* 16-bit mono PCM at AUDIO_RAT
 
 static void audio_flush(void)
 {
+    static unsigned underruns, dropped;
+    static Uint64 report_at;
     if (r_n == 0) return;
     if (dump_f) { fwrite(r_buf, sizeof(s16), (size_t)r_n, dump_f); dump_samples += (u32)r_n; }
     if (audio) {
         int queued = SDL_GetAudioStreamQueued(audio) / (int)sizeof(s16);
+        if (queued == 0) underruns++;
+        if (queued > AUDIO_MAX_QUEUED) dropped += (unsigned)r_n;
+        if (SDL_getenv("SR_AUDIO_STATS") && SDL_GetTicksNS() >= report_at) {
+            fprintf(stderr, "audio: queued=%.1f ms, empty=%u, dropped=%u samples\n",
+                    queued * 1000.0 / AUDIO_RATE, underruns, dropped);
+            report_at = SDL_GetTicksNS() + SDL_NS_PER_SECOND;
+        }
         /* Drop output if the device is far behind (e.g. after a stall) instead of building latency. */
         if (queued <= AUDIO_MAX_QUEUED) {
             if (queued == 0) {                      /* underrun: rebuild a little latency */
@@ -304,7 +320,10 @@ void host_opl_write(u8 reg, u8 value)
 {
     if (!opl_on) return;
     render_to(tl_now);
-    OPL3_WriteReg(&opl, reg, value);
+    /* Real AdLib writes have bus/settle delays. Without them, off/on pairs
+     * from one MUS tick collapse before the envelope generator sees key-off.
+     * Nuked's queue spaces writes by two native samples (~40 us). */
+    OPL3_WriteRegBuffered(&opl, reg, value);
 }
 
 void host_speaker(u16 divisor, bool on)
@@ -539,11 +558,12 @@ void host_pump(void)
         clock_start_ns = now - (tick_due_ns(ticks_run) - clock_start_ns);
     }
 
-    /* Present at most once per ~8 ms; VSync paces it further. */
-    if (frame_source && now - last_present_ns >= 8 * SDL_NS_PER_MS) {
+    /* Absolute presentation deadlines avoid accumulating the sleep overshoot.
+     * The original PIT/game timer above is independent of this cap. */
+    if (frame_source && now - last_present_ns >= frame_interval_ns) {
         if (frame_source(frame)) {
             present();
-            last_present_ns = SDL_GetTicksNS();
+            last_present_ns += ((now - last_present_ns) / frame_interval_ns) * frame_interval_ns;
             worked = true;
         }
     }

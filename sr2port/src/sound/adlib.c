@@ -1,7 +1,8 @@
 /* AdLib OPL2 driver 2c57:16e1-24ad (sound.md 3): operators, voices, pitch bend, volume, rhythm mode.
  * PORT: the driver's tables and caches (DS:7838..95DC, 9266, 9362 ...) live in C statics of this file: nothing
  * outside the sound module reads them. Register writes go to Nuked-OPL3 through host_opl_write (the
- * original's index / data port pair with its settle delays is not needed). */
+ * original's index / data port pair is represented by Nuked's buffered writes,
+ * preserving the settling time needed to retrigger notes). */
 #include "sound/snd_int.h"
 
 #include <string.h>
