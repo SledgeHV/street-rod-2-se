@@ -98,10 +98,11 @@ void enh_drive_step(double dt)
         if (strip) gas = false;
         sync_state();
         double target = direction * 24.0;
-        /* Full lock 0.6s, centre 0.2s, full lock-to-lock countersteer 0.4s. */
+        /* Original ramp: 2 units per legacy tick, 12 ticks to full lock.
+         * Keep smooth 60 Hz motion, centre 0.2s and lock-to-lock reversal 0.4s. */
         if (wheel * direction < 0) countersteer = true;
         if (!direction || wheel == target) countersteer = false;
-        double rate = !direction || countersteer ? 120.0 : 40.0;
+        double rate = !direction || countersteer ? 120.0 : 2.0 * physics_hz;
         double delta = target - wheel;
         wheel += fmax(-rate * dt, fmin(rate * dt, delta));
 

@@ -354,7 +354,7 @@ static void steering_ramp(void)
                 if (reached_limit) assert(input == 24);
                 assert(!PHS(PLAYER, PH_RESULT));
             }
-            assert(reached_limit == (enhanced ? 8 : 12));
+            assert(reached_limit == 12);
             DSC(DS_kbd_dir_x) = 0;
             race_phys_step();
             assert(PHS(PLAYER, PH_STEER_IN) == 0);
@@ -363,7 +363,7 @@ static void steering_ramp(void)
         }
     }
     enh_enabled = true;
-    puts("PASS: held left/right reach limit 24 in 8 SE / 12 Classic steps; hold stays bounded and release centres");
+    puts("PASS: held left/right reach limit 24 in 12 SE/Classic steps; hold stays bounded and release centres");
 }
 
 static void driving_fixture(void)
@@ -384,10 +384,12 @@ static void high_rate_driving(void)
         driving_fixture();
         DSC(DS_kbd_dir_x) = (s8)sign;
         DSC(DS_kbd_dir_y) = -1;
-        for (int tick = 1; tick <= 36; ++tick) {
+        for (int tick = 1; tick <= 119; ++tick) {
             enh_drive_step(1.0 / 60);
             assert(PHS(PLAYER, PH_WHEEL) == PHS(PLAYER, PH_STEER_IN));
             assert(abs16(PHS(PLAYER, PH_WHEEL)) <= 24);
+            if (tick == 36) assert(PHS(PLAYER, PH_WHEEL) == sign * 7);
+            if (tick == 60) assert(PHS(PLAYER, PH_WHEEL) == sign * 12);
         }
         assert(PHS(PLAYER, PH_WHEEL) == sign * 24);
         headings[sign > 0] = DSS(DS_heading);
@@ -412,7 +414,7 @@ static void high_rate_driving(void)
     PHS(PLAYER, PH_SPEED) = 100; PHS(PLAYER, PH_CUR_RATIO) = 50;
     PHS(PLAYER, PH_RPM) = 5000;
     enh_key(0x20); /* D: easy bindings use the same full steering range. */
-    for (int i = 0; i < 36; ++i) enh_drive_step(1.0 / 60);
+    for (int i = 0; i < 119; ++i) enh_drive_step(1.0 / 60);
     assert(PHS(PLAYER, PH_WHEEL) == 24);
     enh_input_reset(); enh_easy_controls = false;
 
@@ -498,7 +500,7 @@ static void high_rate_driving(void)
     enh_drive_step(1.0 / 60);
     assert(PHS(PLAYER, PH_WHEEL) == 0 && DSS(DS_cam_x) == 2500);
     enh_drive_end(); enh_enabled = true;
-    puts("PASS: 60 Hz symmetric motion, 0.6s lock/0.4s reversal/0.2s centre, immediate brake, calibrated acceleration/braking, impact sync, pause/classic isolation, original wear/race/AI clocks");
+    puts("PASS: 60 Hz symmetric motion, original ~2s lock/0.4s reversal/0.2s centre, immediate brake, calibrated acceleration/braking, impact sync, pause/classic isolation, original wear/race/AI clocks");
 }
 
 int main(void)

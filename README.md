@@ -73,7 +73,7 @@ unchanged in Aqueduct.** The centre trough and course layout are unchanged.
 `--difficulty classic` restores the original race rules for both courses.
 
 **Original key bindings remain the default.** SE reaches the original steering
-limit of 24 in 0.6 seconds, reverses full lock in 0.4 seconds, and returns to
+limit of 24 in about 2 seconds (the original 12 increments of 2), reverses full lock in 0.4 seconds, and returns to
 centre in 0.2 seconds. Optional `--controls easy` enables WASD/arrow driving
 and Q/E shifting with the same steering range, including at high speed.
 `--classic` retains the original motion and steering. Difficulty and key bindings

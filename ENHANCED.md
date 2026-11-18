@@ -26,7 +26,8 @@ opotřebení, vyhodnocení kolizí a AI soupeře mají původní časování. De
 autopilot si ponechává původní fyziku; přístroje se i u něj vykreslují častěji.
 
 - Řízení doleva/doprava je souměrné, bez původního celočíselného posunu +1.
-  Plný rejd 24 nastupuje za **0,6 s**, změna z plného rejdu na opačný trvá
+  Plný rejd 24 nastupuje za **cca 2 s** (původních 12 kroků po 2, plynule
+  rozložených do 60 Hz), změna z plného rejdu na opačný trvá
   **0,4 s**, návrat z maxima do středu po puštění klávesy **0,2 s**.
   Kontra začíná hned v dalším kroku, bez prázdného původního fyzikálního kroku.
 - Boční poloha a směr mají desetinné akumulátory. Náraz, řazení či záchrana

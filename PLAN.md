@@ -21,11 +21,13 @@ remove it when it is done; subtasks marked `U<n> pending` are added automaticall
 
 | Task | What to do | For | Time |
 |---|---|---|---|
-| SE driving | Try 60 Hz steering, countersteer, braking and dashboard with Play Enhanced.cmd | 0.6s full lock / 0.4s reversal / 0.2s centre; compare with Classic | One race |
+| SE driving | Try 60 Hz steering, countersteer, braking and dashboard with Play Enhanced.cmd | Original ~2s full lock / 0.4s reversal / 0.2s centre; compare with Classic | One race |
 | SE Aqueduct | Try light wall contacts and continued racing with Play Enhanced.cmd | Forgiving walls and short bounce; opponent pace retained | One race |
 | SE opponent scaling | Watch opponent approach/recede and bank in Aqueduct, including the mirror | Continuous native-sprite scaling and rotation | One race |
 
 ## Status
+
+- **SE steering ramp (2026-11-18):** restored the original 2-unit increment per legacy physics tick (12 ticks, about 2 seconds to full lock), interpolated at 60 Hz. Countersteer and release timing retained. Build and full regression suite pass; local binary updated. Done 2026-11-18.
 
 - **SE driving (2026-11-18):** five approved changes implemented: symmetric continuous steering/lateral motion at 60 Hz, current-state steering presentation, synchronized 60 Hz dashboard, fractional motor/braking with blended RPM bands. Original AI/race/wear/shift clocks retained. Regression and loaded-car input audits pass; Aqueduct 30/120 FPS traces match. Replaces the 3-point steering trial. Local playtest pending.
 
