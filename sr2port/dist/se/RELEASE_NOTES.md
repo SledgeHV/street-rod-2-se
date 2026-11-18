@@ -3,7 +3,7 @@
 ### Novinky od v1.0.0
 
 - **Plynulejší jízdní model:** řízení, boční pohyb, motor a brzdy se aktualizují 60× za sekundu nezávisle na zobrazovaných FPS. Odezva směru a boční polohy už nečeká na starý interpolovaný snímek.
-- **Předvídatelné řízení:** původní náběh 2 → 4 → 6 → … → 24 (cca 2 s do maxima). Kontra nejprve srovná kola do středu (z maxima za 0,2 s), potom opačné zatočení nabíhá běžnou rychlostí. Opravená chyba, která při změnách směru nechávala zapnutý téměř desetkrát rychlejší náběh.
+- **Předvídatelné řízení:** původní náběh 2 → 4 → 6 → … → 24 (cca 2 s do maxima). Kontra nejprve srovná kola do středu (z maxima za 0,2 s), potom opačné zatočení nabíhá běžnou rychlostí.
 - **Plynulejší přístroje:** ručičky a ukazatel volantu se obnovují při 60 Hz; volant ukazuje skutečný rejd. Původní grafika zůstává zachovaná.
 - **Jemnější plyn a brzdy:** průběžný výpočet s desetinnou přesností a plynulejší přechody mezi výkonovými pásmy. Puštění brzdy už téměř stojící auto nezrychlí na rychlost odpovídající volnoběžným otáčkám.
 - **Snazší Aqueduct:** lehké škrtnutí o stěnu ubere 25 % rychlosti, odraz je kratší a soupeř úmyslně nevytlačuje. **Rychlost ani zrychlení soupeře se nemění.** Silné nárazy, překážky a tvar tratě si zachovávají původní pravidla.
@@ -61,7 +61,7 @@ Přechod mezi zadním a bočním obrázkem velmi blízkého soupeře může stá
 
 Download **street-rod-2-se-v1.1.0-win64.zip**, extract everything, copy your installed original DOS game files directly into **Game** beside **Street Rod 2 SE.exe**, then run **Play SE.cmd**. See the file layout above. Include `SR.EXE` or `SR2.EXE`, all listed resources and all original `.MUS` files. SDL3 is bundled; no DOSBox is needed. Original game files are not included. Saves are read/written in **Game**. Czech and English instructions are included in `README.txt`.
 
-New since v1.0.0: 60 Hz player steering, lateral movement, engine, braking and dashboard; current-state steering presentation; smoother Aqueduct opponent scaling/rotation, including the mirror; forgiving Aqueduct wall scrapes and shorter bounce without reducing opponent speed. Steering keeps the original ~2 s ramp to full lock. Reversals centre quickly, then build the opposite turn at the normal rate, fixing sudden fast steering after direction changes. Original graphics, key bindings, race clocks, wear and shift timing are retained. See the [project README](https://github.com/SledgeHV/street-rod-2-se#readme) for the full feature list.
+New since v1.0.0: 60 Hz player steering, lateral movement, engine, braking and dashboard; current-state steering presentation; smoother Aqueduct opponent scaling/rotation, including the mirror; forgiving Aqueduct wall scrapes and shorter bounce without reducing opponent speed. Steering keeps the original ~2 s ramp to full lock. Reversals centre quickly, then build the opposite turn at the normal rate. Original graphics, key bindings, race clocks, wear and shift timing are retained. See the [project README](https://github.com/SledgeHV/street-rod-2-se#readme) for the full feature list.
 
 ### Source and validation
 

@@ -52,7 +52,7 @@ Grafika zůstává původní, bez hi-res náhrad.
 Nově ve v1.1.0: řízení, boční pohyb, motor, brzdy a přístroje běží při 60 Hz.
 Náběh řízení zachovává původní 2 -> 4 -> ... -> 24 (cca 2 s do maxima).
 Kontra rychle srovná kola do středu (z maxima za 0,2 s), pak opačné zatočení
-nabíhá stejně pomalu. Opravené náhlé zrychlení řízení při změnách směru.
+nabíhá stejně pomalu.
 Soupeř se na Aqueductu plynule škáluje i natáčí, také ve zpětném zrcátku.
 
 ENGLISH - INSTALLATION AND STARTUP
@@ -87,7 +87,7 @@ is disabled on both courses. Native graphics are retained.
 New in v1.1.0: 60 Hz steering, lateral movement, engine, brakes and dashboard.
 Steering keeps the original ramp: 2 -> 4 -> ... -> 24, about 2 s to full lock.
 Countersteering centres quickly (0.2 s from full lock), then builds the opposite
-turn at the same normal rate. Fixed sudden steering acceleration on reversals.
+turn at the same normal rate.
 Aqueduct opponent sprites scale and rotate continuously, including in the mirror.
 Switching between rear and close side artwork can still visibly jump.
 

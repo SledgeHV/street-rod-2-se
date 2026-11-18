@@ -26,6 +26,8 @@ remove it when it is done; subtasks marked `U<n> pending` are added automaticall
 
 ## Status
 
+- **SE release wording (2026-11-18):** removed development-only steering bug claims from v1.1.0 release notes and package README source; describe the shipped steering behaviour instead. Done 2026-11-18.
+
 - **SE v1.1.0 (2026-11-18):** final steering correction accepted by user. Windows package and Czech/English notes prepared for 60 Hz driving/dashboard, consistent steering transitions, Aqueduct assistance with unchanged opponent pace, and continuous opponent scaling/rotation. Fresh release build, full regressions, dependency checks and extracted-package SE/Classic startup pass. Packaging done 2026-11-18. Release destination: https://github.com/SledgeHV/street-rod-2-se/releases/tag/v1.1.0.
 
 - **SE steering transitions (2026-11-18):** regression reproduced latched 120-unit/s countersteer after crossing centre or cancelling a reversal. Fast return now stops at centre; the opposite turn always uses the original ramp. Tests cover throttle/brake, repeated reversals and external wheel resets. Build and full regression suite pass; local binary updated. Done 2026-11-18.
