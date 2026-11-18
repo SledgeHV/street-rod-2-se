@@ -1,12 +1,12 @@
-/* Optional Mulholland assists. Called only by the live simulation, never the
- * interpolated renderer. Steering/input physics remain the original game's. */
+/* Optional race assists. Called only by the live simulation, never the
+ * interpolated renderer. Aqueduct retains the original opponent pace. */
 #include "enhanced/enhanced.h"
 #include "game/race_int.h"
 #include "game/snd.h"
 #include <stdlib.h>
 
 bool enh_easy_difficulty = true;
-static int recovery_steps, contact_steps;
+static int recovery_steps, contact_steps, aq_bounce_frames;
 static bool safe_valid;
 static const u16 safe_fields[] = {
     DS_seg, DS_substep, DS_cam_x, DS_cur_height,
@@ -20,9 +20,16 @@ bool enh_easy_race(void)
            DSS(DS_road_mode) == 0x10;
 }
 
+bool enh_easy_aqueduct(void)
+{
+    return enh_easy_difficulty && !enh_replaying && DSB(DS_racing) &&
+           DSS(DS_road_mode) == 8;
+}
+
 void enh_difficulty_reset(void)
 {
     recovery_steps = contact_steps = 0;
+    aq_bounce_frames = 0;
     safe_valid = false;
 }
 
@@ -64,6 +71,10 @@ int enh_recovery_seconds(void) { return enh_recovering() ? (recovery_steps + 5) 
 
 bool enh_recovery_tick(void)
 {
+    if (enh_easy_aqueduct()) {
+        if (contact_steps) --contact_steps;
+        return false; /* normal physics and opponent timing continue */
+    }
     if (!enh_easy_race()) return false;
     if (contact_steps) --contact_steps;
     if (!recovery_steps) return false;
@@ -137,4 +148,43 @@ s16 enh_contact(int side, bool rock)
 s16 enh_opponent_limit(s16 speed)
 {
     return enh_easy_race() ? (s16)((int)speed * 85 / 100) : speed;
+}
+
+s16 enh_aq_contact(int side)
+{
+    if (!enh_easy_aqueduct()) return 1;
+    int speed = PHS(PLAYER, PH_SPEED);
+    /* Aqueduct is straight. A grazing hit is forgiven even at high speed;
+     * a large heading error at speed is still a severe impact. */
+    if (speed * abs((int)DSS(DS_heading)) >= 2500) return 1;
+    /* Keep the asymmetric car footprint (x-110 .. x+520) inside the original
+     * wall thresholds, with a small margin. Do not teleport to the centre. */
+    DSS(DS_cam_x) = (s16)(side < 0 ? 0x439 + 0x6E + 40 : 0xDEC - 0x208 - 40);
+    DSS(DS_heading) = (s16)(side * 4); /* gently point away from this wall */
+    PHS(PLAYER, PH_WHEEL) = PHS(PLAYER, PH_STEER_IN) = 0;
+    DSS(DS_cursor_x) = 0;
+    if (!contact_steps) {
+        int loss = speed / 4;
+        if (speed > 0 && loss == 0) loss = 1;
+        speed_set(speed - loss);
+        contact_steps = 3;
+        aq_bounce_frames = 2;
+        sound_vec(SND_SCREECH);
+    }
+    return 0;
+}
+
+void enh_aq_bounce(void)
+{
+    if (!enh_easy_aqueduct()) return;
+    /* Called after the ordinary road frame. Two following frames show a small
+     * kick; no nested race_step, extra opponent movement or restored speed. */
+    DSW(DS_aq_bounce_flag) = 0; /* opponent must keep advancing normally */
+    if (aq_bounce_frames > 0) {
+        DSS(DS_wall_hit_shift) = (s16)(DSS(DS_aq_wall_hit) * aq_bounce_frames * 2);
+        DSS(DS_view_bounce_y) = (s16)(aq_bounce_frames * 2);
+        --aq_bounce_frames;
+    } else {
+        DSS(DS_wall_hit_shift) = DSS(DS_view_bounce_y) = DSS(DS_aq_wall_hit) = 0;
+    }
 }

@@ -6,7 +6,7 @@ zobrazení jízdy a volitelné jednodušší ovládání. Zůstává 320 × 200 
 
 ## Spuštění
 
-- **Play Enhanced.cmd**: vylepšená jízda, limit 60 FPS, VSync, původní ovládání hry a lehčí Mulholland.
+- **Play Enhanced.cmd**: vylepšená jízda, limit 60 FPS, VSync, původní klávesy s rychlejším náběhem řízení a lehčí Mulholland i Aqueduct.
 - **Play Classic.cmd**: původní vykreslování, ovládání a pravidla kontaktů/soupeře pro porovnání.
 
 Oba soubory použijí `game_original`, případně `Game`. Program rozpozná `SR.EXE`
@@ -22,8 +22,9 @@ zapíná se přepínačem `--controls easy`.
 ## Obtížnost Mulhollandu
 
 Výchozí `--difficulty easy` je nezávislé na nastavení ovládání.
-Nové úlevy se týkají pouze závodu Mulholland; drag, akvadukt a přejezdy městem
-si ponechávají dosavadní pravidla. `--difficulty classic` vypne tyto úlevy při
+Níže uvedené úlevy se týkají závodu Mulholland; Aqueduct má vlastní úlevy popsané
+v další části. Drag a přejezdy městem si ponechávají dosavadní pravidla.
+`--difficulty classic` vypne tyto úlevy při
 zachování plynulého obrazu. `--classic` je vypne společně s obrazovými vylepšeními.
 Dřívější desetinásobné snížení náhodných poruch převodovky zůstává v obou režimech.
 
@@ -50,6 +51,26 @@ Dřívější desetinásobné snížení náhodných poruch převodovky zůstáv
 
 Parametry a obnova auta jsou v `sr2port/src/enhanced/difficulty.c`. Herní data
 a uložené hry se kvůli obtížnosti nepřepisují.
+
+## Obtížnost Aqueductu
+
+V režimu `--difficulty easy` lehké škrtnutí o levou nebo pravou stěnu ubere
+čtvrtinu rychlosti (celočíselně, při pohybu nejméně 1 mph), synchronizuje otáčky
+a vrátí auto těsně dovnitř koryta s mírným nasměrováním od stěny. Opakované
+vyhodnocení stejného kontaktu má ochranu tři fyzikální kroky. Silný náraz
+(`rychlost × absolutní odchylka směru >= 2500`) zůstává havárií; rychlé škrtnutí
+pod malým úhlem se odpouští. Překážky a otvory mají dál původní kolize.
+
+Odraz tvoří dva malé otřesy v běžných snímcích závodu místo původní vnořené
+animace. Nespouští další kroky simulace ani nepřidává soupeři skokový náskok.
+Soupeř se během něj dál normálně pohybuje. Jeho **rychlost i zrychlení zůstávají
+původní**; vypíná se pouze úmyslné vytlačování. Prostřední žlab, tvar tratě
+a běžné kolize aut se nemění. `--difficulty classic` / `--classic` zachovává
+původní pravidla Aqueductu.
+
+Integrační testy ověřují obě stěny, silné nárazy, překážky, synchronizaci
+rychlosti a otáček, ochranu před vícenásobnou penalizací, ukončení otřesu
+a shodný průběh rychlosti, otáček, řazení a postupu soupeře proti classic.
 
 ## Volitelné ovládání
 

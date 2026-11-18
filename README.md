@@ -44,7 +44,7 @@ The original DOS executable is read as game data; start the SE program instead.
 
 ### A more forgiving Mulholland
 
-The default `--difficulty easy` changes Mulholland only:
+The default `--difficulty easy` applies these Mulholland changes:
 
 - Light wall/guardrail contacts slow and deflect the car; severe wall impacts
   can still cause a crash.
@@ -56,6 +56,18 @@ The default `--difficulty easy` changes Mulholland only:
   speed limits. Deliberate ramming is disabled; ordinary car collisions remain.
 - The grey slow zone automatically brakes to at most 60 mph instead of causing
   a crash for entering too fast.
+
+### A more forgiving Aqueduct
+
+With `--difficulty easy`, light wall scrapes remove 25% of speed and gently
+redirect the car into the channel. Severe impacts and obstacle/opening collisions
+retain their crash rules. A short two-frame kick replaces the long wall-bounce
+sequence, without its artificial opponent position jumps. Repeated detection of
+the same scrape has a brief cooldown.
+
+Deliberate opponent ramming is disabled. **Opponent speed and acceleration are
+unchanged in Aqueduct.** The centre trough and course layout are unchanged.
+`--difficulty classic` restores the original race rules for both courses.
 
 **Original controls remain the default.** SE now ramps steering up in steps of 3
 instead of 2, reaching the unchanged limit of 24 in 8 rather than 12 physics

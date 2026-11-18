@@ -925,7 +925,7 @@ void race_step(void)
             } else DSW(DS_ai_yield_toggle) = 0;
             return;
         }
-        if (enh_easy_race() || DSW(DS_bump_allowed) == 0 || start_lane || (MODE & 6) || DSS(DS_alongside_count) <= 3 || DSS(DS_police_state) >= 2) return;
+        if (enh_easy_race() || enh_easy_aqueduct() || DSW(DS_bump_allowed) == 0 || start_lane || (MODE & 6) || DSS(DS_alongside_count) <= 3 || DSS(DS_police_state) >= 2) return;
         if (rnd((s16)(((15 - DSC((u16)(DSW(DS_opp_rec) + PR_B))) >> 2) + 2)) == 0) {   /* bumped off line */
             sound_vec(SND_SCREECH);
             sound_vec(SND_SCREECH);

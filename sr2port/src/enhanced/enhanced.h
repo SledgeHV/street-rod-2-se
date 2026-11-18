@@ -6,6 +6,9 @@
 extern bool enh_enabled, enh_easy_controls, enh_replaying;
 extern bool enh_easy_difficulty;
 bool enh_easy_race(void);
+bool enh_easy_aqueduct(void);
+s16 enh_aq_contact(int side); /* -1 left, +1 right; returns crash */
+void enh_aq_bounce(void);
 void enh_difficulty_reset(void);
 void enh_safe_position(void);
 bool enh_recovery_tick(void);

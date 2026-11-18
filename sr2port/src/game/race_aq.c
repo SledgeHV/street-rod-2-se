@@ -131,6 +131,20 @@ s16 aq_lane_target(s16 x, s16 dx, s16 seg, s16 ox, s16 oseg)
 s16 aq_wall_collision(void)
 {
     DSW(DS_on_shoulder) = 0;
+    if (enh_easy_aqueduct()) {
+        /* Obstacles/openings retain their original collision rules, including
+         * when a wall is touched at the same time. */
+        if (DSW(DS_aq_hit_bits)) return 1;
+        int side = DSS(DS_aq_car_xl) < 0x439 ? -1 : DSS(DS_aq_car_xr) >= 0xDED ? 1 : 0;
+        if (!side) return 0;
+        if (enh_aq_contact(side)) return 1;
+        DSS(DS_aq_wall_hit) = (s16)-side;
+        /* Refresh the cached footprint immediately so multiple physics ticks
+         * before the next projected frame do not count the same hit twice. */
+        DSS(DS_aq_car_xl) = sub16(DSS(DS_cam_x), 0x6E);
+        DSS(DS_aq_car_xr) = add16(DSS(DS_cam_x), 0x208);
+        return 0;
+    }
     if (DSS(DS_aq_car_xl) < 0x439) { DSS(DS_aq_wall_hit) = 1; return 1; }
     if (DSS(DS_aq_car_xr) >= 0xDED) { DSS(DS_aq_wall_hit) = -1; return 1; }
     return DSW(DS_aq_hit_bits) ? 1 : 0;
@@ -653,6 +667,7 @@ void aq_draw_mirror(void)
 /* 0dcb:a1c0 aq_wall_bounce: 8 (fast) or 1 frame(s) of the car bouncing off a wall (road_step, DS:B8C8 set) */
 void aq_wall_bounce(s16 dir)
 {
+    if (enh_easy_aqueduct()) { enh_aq_bounce(); return; }
     DSW(DS_aq_bounce_flag) = 1;
     s16 d = (s16)(shl16(sub16(DSS(DS_opp_seg), DSS(DS_seg)), 3) + q_shr(sub16(DSS(DS_opp_seg_frac64), DSS(DS_substep)), 3));
     s16 k = d >= 0x10 ? (s16)(((s16)(d + 8) >> 4) + 2) : -1;

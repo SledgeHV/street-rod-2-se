@@ -22,8 +22,11 @@ remove it when it is done; subtasks marked `U<n> pending` are added automaticall
 | Task | What to do | For | Time |
 |---|---|---|---|
 | SE steering | Try the faster steering ramp using Play Enhanced.cmd | User-requested 3-point ramp, original 24-point limit | One race |
+| SE Aqueduct | Try light wall contacts and continued racing with Play Enhanced.cmd | Forgiving walls and short bounce; opponent pace retained | One race |
 
 ## Status
+
+- **SE Aqueduct (2026-11-18):** easy wall scrapes slow/recentre the car, bounce uses two normal frames without extra opponent movement, deliberate ramming disabled. Opponent speed/acceleration and obstacles retained. Regression tests pass; local playtest pending.
 
 - **SE steering (2026-11-18):** trial change: default SE steering increments 3 instead of 2, original limit/return retained; `--classic` keeps increment 2. Local playtest pending.
 
