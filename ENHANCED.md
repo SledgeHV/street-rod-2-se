@@ -54,7 +54,8 @@ na herních datech přepnuly demo na ovládání hráče: Aqueduct při 30 a 120
 měl shodnou sekvenci poloh, rychlostí a natočení; Mulholland při 60 FPS rovněž
 prošel. Celý demonstrační Aqueduct v SE i Classic skončil stejným výsledkem
 a téměř shodným časem (rozdíl 4 ms v diagnostickém logu); prošel i návrat
-do běžné jízdy. Pocit z ručního řízení zbývá ověřit při hraní.
+do běžné jízdy. Finální opravu náběhu a kontry uživatel potvrdil při hraní
+18. 11. 2026; release v1.1.0 obsahuje tuto variantu.
 
 ## Obtížnost Mulhollandu
 

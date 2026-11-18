@@ -11,8 +11,8 @@ Podrobný český popis změn a nastavení: **[ENHANCED.md](ENHANCED.md)**.
 
 ## Download and play (Windows 64-bit)
 
-Download **[Street Rod 2 SE v1.0.0](https://github.com/SledgeHV/street-rod-2-se/releases/tag/v1.0.0)**
-and extract `street-rod-2-se-v1.0.0-win64.zip` to a writable folder.
+Download **[Street Rod 2 SE v1.1.0](https://github.com/SledgeHV/street-rod-2-se/releases/tag/v1.1.0)**
+and extract `street-rod-2-se-v1.1.0-win64.zip` to a writable folder.
 Copy your installed original Street Rod 2 files into the included **`Game`**
 folder, next to `Street Rod 2 SE.exe`, then run **`Play SE.cmd`**.
 SDL3 is included; no separate installation or DOSBox is needed.
@@ -131,7 +131,7 @@ The original program and resource files are not modified.
 
 ## Validation and current limits
 
-Regression tests cover rendering-state isolation and interpolation (755 replay
+Regression tests cover rendering-state isolation and interpolation (822 replay
 checks), scenery pixels, bridge-bank rendering, difficulty rules, course height,
 controls and audio retriggering. Simulated Mulholland, Aqueduct and drag races
 have also been run using original game data locally.
@@ -139,7 +139,8 @@ have also been run using original game data locally.
 The low native resolution still produces one-pixel movement steps. Very close
 side views of the opponent and some collision/roll animations retain the original
 sprite selection; switching from a rear to a side view can still visibly jump.
-The dashboard retains the original update rate. Interpolation adds approximately
+The dashboard updates at 60 Hz. Steering and lateral position use current player
+state; longitudinal movement and scenery still use interpolation with approximately
 one original frame of visual delay. See [ENHANCED.md](ENHANCED.md) for details.
 Local diagnostic captures and original game data are not published.
 

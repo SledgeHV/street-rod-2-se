@@ -1,4 +1,4 @@
-Street Rod 2 SE v1.0.0 - bundled components
+Street Rod 2 SE v1.1.0 - bundled components
 
 Street Rod 2 SE.exe
   Port and SE code: MIT, see ../LICENSE.
@@ -11,8 +11,8 @@ Nuked-OPL3 (linked into Street Rod 2 SE.exe)
   https://github.com/nukeykt/Nuked-OPL3
   Version: commit 765ec962e473aeb767e4cba74ffdc8f588ffbfe8 (unmodified).
   Full matching port/application and library source plus build scripts:
-  https://github.com/SledgeHV/street-rod-2-se/releases/tag/v1.0.0
-  Download street-rod-2-se-v1.0.0-source.zip. The library source is under
+  https://github.com/SledgeHV/street-rod-2-se/releases/tag/v1.1.0
+  Download street-rod-2-se-v1.1.0-source.zip. The library source is under
   sr2port/third_party/nuked-opl3. Rebuild with build-enhanced.ps1 or CMake
   as documented in README.md; you can modify and relink the library.
 

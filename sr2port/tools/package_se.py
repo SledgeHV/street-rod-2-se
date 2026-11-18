@@ -14,7 +14,7 @@ import subprocess
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 NAME = f"street-rod-2-se-v{VERSION}-win64"
 
 
