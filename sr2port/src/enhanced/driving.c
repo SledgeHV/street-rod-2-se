@@ -11,7 +11,6 @@ static double wheel, heading, lateral, speed, rpm, dash_speed, dash_rpm;
 static s16 last_wheel, last_heading, last_x, last_speed, last_rpm;
 static int direction;
 static bool gas, brake;
-static bool countersteer;
 static double brake_left, brake_rate;
 static const double physics_hz = PIT_HZ / (12.0 * PIT_DIV_GAME);
 static const double road_hz = PIT_HZ / (8.0 * PIT_DIV_GAME);
@@ -98,13 +97,18 @@ void enh_drive_step(double dt)
         if (strip) gas = false;
         sync_state();
         double target = direction * 24.0;
-        /* Original ramp: 2 units per legacy tick, 12 ticks to full lock.
-         * Keep smooth 60 Hz motion, centre 0.2s and lock-to-lock reversal 0.4s. */
-        if (wheel * direction < 0) countersteer = true;
-        if (!direction || wheel == target) countersteer = false;
-        double rate = !direction || countersteer ? 120.0 : 2.0 * physics_hz;
+        /* Return quickly only as far as centre, then build the new turn at
+         * the original 2 units per legacy tick. Never latch a faster ramp:
+         * brief reversals and external wheel resets must behave consistently. */
+        double steering_dt = dt;
+        if (direction && wheel * direction < 0) {
+            double centring_dt = fmin(steering_dt, fabs(wheel) / 120.0);
+            wheel += direction * 120.0 * centring_dt;
+            steering_dt -= centring_dt;
+        }
+        double rate = !direction ? 120.0 : 2.0 * physics_hz;
         double delta = target - wheel;
-        wheel += fmax(-rate * dt, fmin(rate * dt, delta));
+        wheel += fmax(-rate * steering_dt, fmin(rate * steering_dt, delta));
 
         double ratio = PHS(PLAYER, PH_CUR_RATIO);
         bool braking = brake || (DSW(DS_on_shoulder) && speed > 8);
@@ -155,7 +159,6 @@ void enh_drive_step(double dt)
         DSS(DS_cursor_x) = 0;
     } else {
         valid = false;
-        countersteer = false;
         brake_left = 0;
     }
 
@@ -180,7 +183,7 @@ bool enh_drive_view(double *h, double *x)
 void enh_drive_begin(void)
 {
     running = enh_enabled; valid = false;
-    countersteer = false; brake_left = 0;
+    brake_left = 0;
     direction = 0; gas = brake = false;
     dash_speed = PHS(PLAYER, PH_SPEED); dash_rpm = PHS(PLAYER, PH_RPM);
     enh_dash_begin();

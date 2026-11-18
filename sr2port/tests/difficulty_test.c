@@ -377,6 +377,43 @@ static void driving_fixture(void)
     assert(enh_drive_active());
 }
 
+static void steering_transitions(void)
+{
+    for (int sign = -1; sign <= 1; sign += 2) {
+        for (int braking = 0; braking <= 1; ++braking) {
+            driving_fixture();
+            DSC(DS_kbd_dir_y) = braking ? 1 : -1;
+            PHS(PLAYER, PH_WHEEL) = PHS(PLAYER, PH_STEER_IN) = sign * 24;
+            DSC(DS_kbd_dir_x) = (s8)-sign;
+            for (int i = 0; i < 12; ++i) enh_drive_step(1.0 / 60);
+            assert(PHS(PLAYER, PH_WHEEL) == 0);
+            /* Crossing centre must start the same slow ramp as a fresh turn,
+             * whether accelerating or braking; no latched fast opposite lock. */
+            for (int i = 0; i < 30; ++i) enh_drive_step(1.0 / 60);
+            assert(PHS(PLAYER, PH_WHEEL) == -sign * 6);
+
+            /* Reverse again for one frame, then resume the current turn.
+             * A cancelled countersteer must not leave a fast steering mode. */
+            DSC(DS_kbd_dir_x) = (s8)sign;
+            enh_drive_step(1.0 / 60);
+            assert(PHS(PLAYER, PH_WHEEL) == -sign * 4);
+            DSC(DS_kbd_dir_x) = (s8)-sign;
+            for (int i = 0; i < 10; ++i) enh_drive_step(1.0 / 60);
+            assert(PHS(PLAYER, PH_WHEEL) == -sign * 6);
+
+            /* Collision/recovery resetting the wheel during countersteer
+             * must also start a normal ramp. */
+            DSC(DS_kbd_dir_x) = (s8)sign;
+            enh_drive_step(1.0 / 60);
+            PHS(PLAYER, PH_WHEEL) = PHS(PLAYER, PH_STEER_IN) = 0;
+            for (int i = 0; i < 30; ++i) enh_drive_step(1.0 / 60);
+            assert(PHS(PLAYER, PH_WHEEL) == sign * 6);
+            enh_drive_end();
+        }
+    }
+    puts("PASS: consistent steering ramp through centre, cancelled reversals and external resets, with throttle or brake");
+}
+
 static void high_rate_driving(void)
 {
     int headings[2], offsets[2];
@@ -394,12 +431,14 @@ static void high_rate_driving(void)
         assert(PHS(PLAYER, PH_WHEEL) == sign * 24);
         headings[sign > 0] = DSS(DS_heading);
         offsets[sign > 0] = DSS(DS_cam_x);
-        /* Countersteering begins in the very next 60 Hz step, without a dead
-         * legacy tick, and reaches the other lock in 0.4 seconds. */
+        /* Countersteering begins immediately, centres in 0.2 seconds, then
+         * takes the original ~2 seconds to build the opposite lock. */
         DSC(DS_kbd_dir_x) = (s8)-sign;
         enh_drive_step(1.0 / 60);
         assert(PHS(PLAYER, PH_WHEEL) == sign * 22);
-        for (int tick = 1; tick < 24; ++tick) enh_drive_step(1.0 / 60);
+        for (int tick = 1; tick < 12; ++tick) enh_drive_step(1.0 / 60);
+        assert(PHS(PLAYER, PH_WHEEL) == 0);
+        for (int tick = 0; tick < 119; ++tick) enh_drive_step(1.0 / 60);
         assert(PHS(PLAYER, PH_WHEEL) == -sign * 24);
         DSC(DS_kbd_dir_x) = 0;
         for (int tick = 0; tick < 12; ++tick) enh_drive_step(1.0 / 60);
@@ -500,7 +539,7 @@ static void high_rate_driving(void)
     enh_drive_step(1.0 / 60);
     assert(PHS(PLAYER, PH_WHEEL) == 0 && DSS(DS_cam_x) == 2500);
     enh_drive_end(); enh_enabled = true;
-    puts("PASS: 60 Hz symmetric motion, original ~2s lock/0.4s reversal/0.2s centre, immediate brake, calibrated acceleration/braking, impact sync, pause/classic isolation, original wear/race/AI clocks");
+    puts("PASS: 60 Hz symmetric motion, original ~2s lock/0.2s centre, consistent reversal ramp, immediate brake, calibrated acceleration/braking, impact sync, pause/classic isolation, original wear/race/AI clocks");
 }
 
 int main(void)
@@ -508,6 +547,7 @@ int main(void)
     contacts(); recovery(); opponent(); slow_strip(); scenery_tests(); course_height();
     steering_ramp();
     aqueduct_assists();
+    steering_transitions();
     high_rate_driving();
     puts("PASS: light/hard contacts, classic collisions, cliff/bridge recovery, 3-second penalty with moving opponent, AI limits/curves/no ramming, race scope, original controls");
     return 0;

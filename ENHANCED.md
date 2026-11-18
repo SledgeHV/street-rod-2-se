@@ -27,9 +27,10 @@ autopilot si ponechává původní fyziku; přístroje se i u něj vykreslují �
 
 - Řízení doleva/doprava je souměrné, bez původního celočíselného posunu +1.
   Plný rejd 24 nastupuje za **cca 2 s** (původních 12 kroků po 2, plynule
-  rozložených do 60 Hz), změna z plného rejdu na opačný trvá
-  **0,4 s**, návrat z maxima do středu po puštění klávesy **0,2 s**.
-  Kontra začíná hned v dalším kroku, bez prázdného původního fyzikálního kroku.
+  rozložených do 60 Hz), návrat z maxima do středu trvá **0,2 s**.
+  Kontra začíná hned v dalším kroku: nejprve rychle srovná kola do středu,
+  pak nabíhá opačný rejd běžnou rychlostí (celkem cca **2,2 s** mezi maximy).
+  Brzdění ani rychlé změny směru nepřepínají na rychlejší náběh.
 - Boční poloha a směr mají desetinné akumulátory. Náraz, řazení či záchrana
   u útesu se ihned převezmou a starý akumulátor je nemůže přepsat zpět.
 - Obraz používá aktuální směr a boční polohu z tohoto výpočtu. Odezva řízení
