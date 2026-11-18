@@ -22,6 +22,13 @@ static double drawn_position, drawn_opponent_distance;
 static double drawn_height, drawn_cam_x, drawn_cam_y, drawn_heading, drawn_x, drawn_y;
 static s16 drawn_sky, drawn_peak;
 static unsigned renders;
+static bool live_controls;
+static double live_heading, live_x;
+bool enh_drive_view(double *heading, double *x)
+{
+    *heading = live_heading; *x = live_x;
+    return live_controls;
+}
 
 Uint64 SDLCALL SDL_GetTicksNS(void) { return fake_now; }
 u8 *ega_plane(int p) { return planes[p]; }
@@ -90,6 +97,11 @@ static void isolation(void)
     assert(pixels[20 * 320] == 99 && pixels[20 * 320 + 7] == 99);
     assert(pixels[20 * 320 + 8] == 1);
     assert(pixels[17 * 320] == 99 && pixels[100 * 320] == 99); /* dash / title */
+    live_controls = true; live_heading = 142.25; live_x = 2500.5;
+    assert(enh_compose(pixels, palette, 0x2000, 100));
+    assert(drawn_heading == live_heading && drawn_cam_x == live_x);
+    assert(!memcmp(original_mem, mem, sizeof mem));
+    live_controls = false;
     assert(!enh_compose(pixels, palette, 0x4000, 100));
     assert(!enh_compose(pixels, palette, 0x2000, 200));
     fake_now += 10000000;

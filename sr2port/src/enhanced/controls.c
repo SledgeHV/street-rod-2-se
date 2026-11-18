@@ -19,12 +19,17 @@ bool enh_key(u8 sc)
     return key == 0x11 || key == 0x1e || key == 0x1f || key == 0x20 || key == 0x10 || key == 0x12;
 }
 
-void enh_input(int *direction, bool *gas, bool *brake, s8 *shift)
+void enh_input_state(int *direction, bool *gas, bool *brake)
 {
     *direction = ((held[0x20] || held[0x4d]) ? 1 : 0) - ((held[0x1e] || held[0x4b]) ? 1 : 0);
     *gas = *gas || held[0x11] || held[0x48];
     *brake = *brake || held[0x1f] || held[0x50];
     if (*brake) *gas = false;
+}
+
+void enh_input(int *direction, bool *gas, bool *brake, s8 *shift)
+{
+    enh_input_state(direction, gas, brake);
     if (pending_shift) *shift = pending_shift;
     pending_shift = 0;
 }

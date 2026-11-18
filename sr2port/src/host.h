@@ -14,6 +14,8 @@ void host_shutdown(void);
 /* Called once per timer tick from host_pump() (the port's replacement for INT 8). The platform timer
  * module installs the ISR body (0000:1fe2, or 0000:238c while a sound plays). */
 void host_set_tick_handler(void (*handler)(void));
+/* Optional fixed 60 Hz simulation callback, independent of presentation/PIT. */
+void host_set_motion_handler(void (*handler)(double dt));
 
 /* PIT channel 0 divisor (0 = 65536), as the original programs ports 43h/40h. Ticks run at
  * PIT_HZ / divisor from the last tick on; the default is PIT_DIV_GAME. */

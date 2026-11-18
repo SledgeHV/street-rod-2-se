@@ -21,17 +21,19 @@ remove it when it is done; subtasks marked `U<n> pending` are added automaticall
 
 | Task | What to do | For | Time |
 |---|---|---|---|
-| SE steering | Try the faster steering ramp using Play Enhanced.cmd | User-requested 3-point ramp, original 24-point limit | One race |
+| SE driving | Try 60 Hz steering, countersteer, braking and dashboard with Play Enhanced.cmd | 0.6s full lock / 0.4s reversal / 0.2s centre; compare with Classic | One race |
 | SE Aqueduct | Try light wall contacts and continued racing with Play Enhanced.cmd | Forgiving walls and short bounce; opponent pace retained | One race |
 | SE opponent scaling | Watch opponent approach/recede and bank in Aqueduct, including the mirror | Continuous native-sprite scaling and rotation | One race |
 
 ## Status
 
+- **SE driving (2026-11-18):** five approved changes implemented: symmetric continuous steering/lateral motion at 60 Hz, current-state steering presentation, synchronized 60 Hz dashboard, fractional motor/braking with blended RPM bands. Original AI/race/wear/shift clocks retained. Regression and loaded-car input audits pass; Aqueduct 30/120 FPS traces match. Replaces the 3-point steering trial. Local playtest pending.
+
 - **SE opponent scaling (2026-11-18):** Aqueduct rear/front sprites scale and rotate from the native bitmap at every bank angle; fractional contact anchor retained, including near rear views. Full regression suite and SE/Classic Aqueduct runs pass (SE ~60 FPS). Pixel tests cover distance levels, steep banks, pivot, mirror clipping and contact/classic fallback. Local visual playtest pending.
 
 - **SE Aqueduct (2026-11-18):** easy wall scrapes slow/recentre the car, bounce uses two normal frames without extra opponent movement, deliberate ramming disabled. Opponent speed/acceleration and obstacles retained. Regression tests pass; local playtest pending.
 
-- **SE steering (2026-11-18):** trial change: default SE steering increments 3 instead of 2, original limit/return retained; `--classic` keeps increment 2. Local playtest pending.
+- **SE steering trial (2026-11-18):** 3-point ramp superseded by the approved 60 Hz driving update above; `--classic` retains the original ramp.
 
 - **SE fork (2026-11-17):** Windows v1.0.0 package prepared and validated with a clean build, regression tests and extracted-package SE/Classic startup checks. Release instructions and packaging script: `sr2port/dist/se/`, `sr2port/tools/package_se.py`. Publication: https://github.com/SledgeHV/street-rod-2-se/releases/tag/v1.0.0. Upstream status below is retained as historical context.
 

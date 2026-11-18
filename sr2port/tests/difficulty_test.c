@@ -8,6 +8,8 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
+#include "host.h"
 
 static void fixture(void)
 {
@@ -364,11 +366,147 @@ static void steering_ramp(void)
     puts("PASS: held left/right reach limit 24 in 8 SE / 12 Classic steps; hold stays bounded and release centres");
 }
 
+static void driving_fixture(void)
+{
+    enh_drive_end();
+    fixture();
+    enh_enabled = true;
+    DSS(DS_race_state) = 3; DSS(DS_cam_x) = 2400;
+    DSB(DS_bios_ticks) = 1;
+    enh_drive_begin();
+    assert(enh_drive_active());
+}
+
+static void high_rate_driving(void)
+{
+    int headings[2], offsets[2];
+    for (int sign = -1; sign <= 1; sign += 2) {
+        driving_fixture();
+        DSC(DS_kbd_dir_x) = (s8)sign;
+        DSC(DS_kbd_dir_y) = -1;
+        for (int tick = 1; tick <= 36; ++tick) {
+            enh_drive_step(1.0 / 60);
+            assert(PHS(PLAYER, PH_WHEEL) == PHS(PLAYER, PH_STEER_IN));
+            assert(abs16(PHS(PLAYER, PH_WHEEL)) <= 24);
+        }
+        assert(PHS(PLAYER, PH_WHEEL) == sign * 24);
+        headings[sign > 0] = DSS(DS_heading);
+        offsets[sign > 0] = DSS(DS_cam_x);
+        /* Countersteering begins in the very next 60 Hz step, without a dead
+         * legacy tick, and reaches the other lock in 0.4 seconds. */
+        DSC(DS_kbd_dir_x) = (s8)-sign;
+        enh_drive_step(1.0 / 60);
+        assert(PHS(PLAYER, PH_WHEEL) == sign * 22);
+        for (int tick = 1; tick < 24; ++tick) enh_drive_step(1.0 / 60);
+        assert(PHS(PLAYER, PH_WHEEL) == -sign * 24);
+        DSC(DS_kbd_dir_x) = 0;
+        for (int tick = 0; tick < 12; ++tick) enh_drive_step(1.0 / 60);
+        assert(!PHS(PLAYER, PH_WHEEL) && !PHS(PLAYER, PH_STEER_IN));
+        assert(!PHW(PLAYER, PH_STEPS) && !PHW(OPP, PH_STEPS));
+        assert(!DSL(DS_distance));
+    }
+    assert(headings[0] + headings[1] == 200);
+    assert(offsets[0] + offsets[1] == 4800);
+
+    driving_fixture(); enh_easy_controls = true;
+    PHS(PLAYER, PH_SPEED) = 100; PHS(PLAYER, PH_CUR_RATIO) = 50;
+    PHS(PLAYER, PH_RPM) = 5000;
+    enh_key(0x20); /* D: easy bindings use the same full steering range. */
+    for (int i = 0; i < 36; ++i) enh_drive_step(1.0 / 60);
+    assert(PHS(PLAYER, PH_WHEEL) == 24);
+    enh_input_reset(); enh_easy_controls = false;
+
+    int increase[2];
+    for (int side = 0; side < 2; ++side) {
+        driving_fixture();
+        int initial = side ? 3010 : 2990;
+        PHS(PLAYER, PH_RPM) = (s16)initial;
+        PHS(PLAYER, CRV(1, 0) + CRV_HI) = 3000;
+        PHS(PLAYER, CRV(1, 1) + CRV_UP) = 200;
+        DSC(DS_kbd_dir_y) = -1;
+        enh_drive_step(1.0 / 60);
+        increase[side] = PHS(PLAYER, PH_RPM) - initial;
+    }
+    assert(increase[0] >= 14 && increase[1] <= 17 && increase[1] - increase[0] <= 2);
+
+    driving_fixture();
+    DSC(DS_kbd_dir_y) = -1;
+    for (int i = 0; i < 60; ++i) enh_drive_step(1.0 / 60);
+    double hz = PIT_HZ / (12.0 * PIT_DIV_GAME);
+    assert(abs16(PHS(PLAYER, PH_RPM) - (s16)lround(3000 + 100 * hz)) <= 1);
+    assert(PHS(PLAYER, PH_SPEED) == 60);
+    /* 80 -> 73 after one original brake interval, divided into ten smaller
+     * updates. A short tap must affect speed before any legacy physics tick. */
+    PHS(PLAYER, PH_SPEED) = 80; PHS(PLAYER, PH_RPM) = 4800;
+    DSC(DS_kbd_dir_y) = 1;
+    enh_drive_step(1.0 / (10 * hz));
+    assert(PHS(PLAYER, PH_SPEED) == 79);
+    for (int i = 1; i < 10; ++i) enh_drive_step(1.0 / (10 * hz));
+    assert(PHS(PLAYER, PH_SPEED) == 73);
+    for (int i = 0; i < 50; ++i) enh_drive_step(1.0 / (10 * hz));
+    assert(PHS(PLAYER, PH_SPEED) == 46);
+
+    /* Impacts, shifts and rescue teleports own their changes immediately. */
+    PHS(PLAYER, PH_SPEED) = 25; PHS(PLAYER, PH_RPM) = 1500;
+    DSS(DS_heading) = 115; DSS(DS_cam_x) = 2600;
+    PHS(PLAYER, PH_WHEEL) = PHS(PLAYER, PH_STEER_IN) = 0;
+    enh_drive_step(1.0 / 60);
+    assert(PHS(PLAYER, PH_SPEED) <= 25 && DSS(DS_heading) == 115);
+    assert(DSS(DS_cam_x) > 2500);
+    DSW(DS_menu_depth) = 1;
+    int x = DSS(DS_cam_x), rpm = PHS(PLAYER, PH_RPM);
+    for (int i = 0; i < 60; ++i) enh_drive_step(1.0 / 60);
+    assert(DSS(DS_cam_x) == x && PHS(PLAYER, PH_RPM) == rpm);
+    DSW(DS_menu_depth) = 0;
+    PHS(PLAYER, PH_SPEED) = 2; PHS(PLAYER, PH_RPM) = 1500;
+    DSC(DS_kbd_dir_y) = 0;
+    enh_drive_step(1.0 / 60);
+    assert(PHS(PLAYER, PH_SPEED) <= 2); /* idle revs cannot undo braking */
+    enh_drive_end();
+
+    /* 60 Hz motor updates must not multiply race ticks, distance accounting,
+     * wear or opponent steps. Compare the real low-rate bookkeeping paths. */
+    int wear[2], steps[2], distance[2];
+    for (int fast = 0; fast <= 1; ++fast) {
+        driving_fixture();
+        if (!fast) enh_drive_end();
+        DSC(DS_kbd_dir_y) = -1;
+        PHS(PLAYER, PH_SPEED) = 85; PHS(PLAYER, PH_RPM) = 5100;
+        PHS(PLAYER, PH_RPM_UP) = 0;
+        for (int b = 0; b < 3; ++b) PHS(PLAYER, CRV(1, b) + CRV_UP) = 0;
+        for (int tick = 0; tick < 6; ++tick) {
+            for (int k = 0; k < 10; ++k) enh_drive_step(1.0 / (10 * hz));
+            race_phys_step();
+        }
+        wear[fast] = PARTS(CARW(cur_car(), CR_ENGINE), PT_WEAR);
+        steps[fast] = PHW(PLAYER, PH_STEPS); distance[fast] = (int)DSL(DS_distance);
+        assert(!PHW(OPP, PH_STEPS) && DSS(DS_opp_seg) == 410);
+    }
+    assert(steps[0] == 6 && steps[1] == 6);
+    assert(wear[0] == wear[1] && wear[0] > 0);
+    assert(distance[0] == distance[1]);
+    driving_fixture(); DSC(DS_kbd_dir_y) = -1;
+    PHS(PLAYER, PH_SPEED) = 95; PHS(PLAYER, PH_RPM) = 5700;
+    for (int k = 0; k < 10; ++k) enh_drive_step(1.0 / 60);
+    assert(PHS(PLAYER, PH_RPM) == 5701 && !DSW(DS_limiter_count));
+    race_phys_step();
+    assert(DSW(DS_limiter_count) == 1 && PHS(PLAYER, PH_RPM) == 5700);
+    enh_drive_end();
+    fixture(); enh_enabled = false; enh_drive_begin();
+    assert(!enh_drive_active());
+    DSC(DS_kbd_dir_x) = 1;
+    enh_drive_step(1.0 / 60);
+    assert(PHS(PLAYER, PH_WHEEL) == 0 && DSS(DS_cam_x) == 2500);
+    enh_drive_end(); enh_enabled = true;
+    puts("PASS: 60 Hz symmetric motion, 0.6s lock/0.4s reversal/0.2s centre, immediate brake, calibrated acceleration/braking, impact sync, pause/classic isolation, original wear/race/AI clocks");
+}
+
 int main(void)
 {
     contacts(); recovery(); opponent(); slow_strip(); scenery_tests(); course_height();
     steering_ramp();
     aqueduct_assists();
+    high_rate_driving();
     puts("PASS: light/hard contacts, classic collisions, cliff/bridge recovery, 3-second penalty with moving opponent, AI limits/curves/no ramming, race scope, original controls");
     return 0;
 }

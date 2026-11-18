@@ -13,6 +13,8 @@
 #include "game/race_int.h"
 #include "game/race.h"
 #include "game/flow.h"
+#include "enhanced/enhanced.h"
+#include <math.h>
 
 #include "platform/platform.h"
 #include "platform/video.h"
@@ -157,6 +159,29 @@ s16 needle_update(s16 nv, s16 old, s16 tach)
     rect_of(x0, y0, x1, y1, tach ? 3 : 2, true);
     dash_line(x0, y0, x1, y1, DSS(DS_needle_colour));
     return nv;
+}
+
+static s16 fast_speed, fast_rpm;
+
+void enh_dash_begin(void)
+{
+    fast_speed = PHS(PLAYER, PH_SPEED);
+    fast_rpm = PHS(PLAYER, PH_RPM);
+}
+
+void enh_dash_update(double speed, double rpm, s16 wheel)
+{
+    s16 mph = (s16)lround(fmax(0, fmin(130, speed)));
+    s16 revs = (s16)lround(fmax(0, fmin(5700, rpm)));
+    if (mph != fast_speed) fast_speed = needle_update(mph, fast_speed, 0);
+    if (!DSW(DS_has_clock) && revs != fast_rpm) fast_rpm = needle_update(revs, fast_rpm, 1);
+    if (wheel != DSS(DS_wheel_shown)) {
+        wheel_draw(wheel, DSS(DS_wheel_shown), ds_far(DS_page0_ptr));
+        DSS(DS_wheel_shown) = wheel;
+    }
+    /* Some legacy hazards consult this field. Cosmetic damping must not affect
+     * their speed threshold, especially during an impact/automatic slowdown. */
+    DSS(DS_speedo_shown) = PHS(PLAYER, PH_SPEED);
 }
 
 /* point at angle a, length L around the tach centre */

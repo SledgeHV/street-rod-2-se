@@ -13,11 +13,46 @@ Oba soubory použijí `game_original`, případně `Game`. Program rozpozná `SR
 i `SR2.EXE`. Připravená Windows verze je `build/sr2-enhanced.exe`; vedle ní musí
 zůstat `SDL3.dll`. Uložené hry vznikají v pracovním adresáři, nikoli v `game_original`.
 
-Výchozí je původní ovládání hry (`--controls classic`) s rychlejším náběhem
-zatáčení v SE: krok 3 místo 2, maximum stále 24. Držená šipka dosáhne maxima
-za 8 místo 12 fyzikálních kroků. Návrat volantu se nemění; `--classic` zachovává
-původní krok 2. Platí i při přímém spuštění EXE. Režim easy je pouze volitelný,
-zapíná se přepínačem `--controls easy`.
+Výchozí jsou původní klávesy hry (`--controls classic`) s novým jízdním modelem
+SE popsaným níže. `--controls easy` mění klávesy na WASD/QE; oba režimy mají
+stejný rozsah a odezvu řízení. Samostatný `--classic` zachovává původní jízdní
+model včetně kroku řízení 2. Platí i při přímém spuštění EXE.
+
+## Odezva a plynulost jízdy
+
+Hráčovo řízení, boční pohyb, otáčky a rychlost se v SE aktualizují **60× za
+sekundu**, nezávisle na limitu zobrazovaných FPS. Hodiny závodu, řazení,
+opotřebení, vyhodnocení kolizí a AI soupeře mají původní časování. Demonstrační
+autopilot si ponechává původní fyziku; přístroje se i u něj vykreslují častěji.
+
+- Řízení doleva/doprava je souměrné, bez původního celočíselného posunu +1.
+  Plný rejd 24 nastupuje za **0,6 s**, změna z plného rejdu na opačný trvá
+  **0,4 s**, návrat z maxima do středu po puštění klávesy **0,2 s**.
+  Kontra začíná hned v dalším kroku, bez prázdného původního fyzikálního kroku.
+- Boční poloha a směr mají desetinné akumulátory. Náraz, řazení či záchrana
+  u útesu se ihned převezmou a starý akumulátor je nemůže přepsat zpět.
+- Obraz používá aktuální směr a boční polohu z tohoto výpočtu. Odezva řízení
+  tak nečeká na přibližně 110 ms starý snímek. Podélná poloha, soupeř a okolní
+  scéna nadále používají dosavadní interpolaci; nejde o zvýšení frekvence celé
+  původní simulace ani o předpovídání pohybu skrz překážky.
+- Volant zobrazuje skutečný rejd. Jeho ukazatel a ručičky přístrojů se obnovují
+  při 60Hz kroku; původní grafika volantu má stále pouze tři základní obrázky.
+- Zrychlování a brzdění probíhá po malých krocích s desetinnou přesností.
+  Brzdové úbytky mají stejné koncové hodnoty jako původní výpočet (např.
+  80 → 73 mph za jeden původní interval). Výkonové pásmo motoru přechází
+  plynule v okolí ±100 otáček od původních hranic. Převody a pravidla řazení
+  zůstávají původní. Po puštění brzdy volnoběžné otáčky samy nezrychlí téměř
+  stojící auto.
+
+Implementace: `sr2port/src/enhanced/driving.c`; pevný 60Hz časovač v `host.c`.
+Regresní testy ověřují náběh, kontra, souměrnost, brzdy, výkonová pásma,
+zachování opotřebení a závodních hodin, synchronizaci po nárazu, pauzu, Classic
+a vykreslení aktuálního směru bez úniku změn z rendereru. Diagnostické jízdy
+na herních datech přepnuly demo na ovládání hráče: Aqueduct při 30 a 120 FPS
+měl shodnou sekvenci poloh, rychlostí a natočení; Mulholland při 60 FPS rovněž
+prošel. Celý demonstrační Aqueduct v SE i Classic skončil stejným výsledkem
+a téměř shodným časem (rozdíl 4 ms v diagnostickém logu); prošel i návrat
+do běžné jízdy. Pocit z ručního řízení zbývá ověřit při hraní.
 
 ## Obtížnost Mulhollandu
 
@@ -83,17 +118,11 @@ a shodný průběh rychlosti, otáček, řazení a postupu soupeře proti classi
 | Původní kontextové řazení | Mezerník |
 | Celá obrazovka | Alt+Enter |
 
-Režim easy omezuje natočení volantu podle rychlosti a po uvolnění klávesy jej
-vrací do středu. Pohyb myši v tomto režimu neotáčí volantem. Nabídky a jejich
-klávesové zkratky zůstávají původní. Režim classic zachovává také řazení A/Z.
-
-Parametry současného easy řízení jsou v `sr2port/src/enhanced/controls.c`, funkci
-`enh_steering`: maximální natočení je 12 do rychlosti 50, 8 do rychlosti 90 a 6
-nad 90 (interní jednotky volantu). Přiblížení k požadovanému natočení má krok 4;
-návrat do středu nebo změna směru krok 6. Funkce běží jednou za fyzikální krok,
-běžně přibližně šestkrát za sekundu, nikoli každý zobrazovaný snímek. Původní
-řízení má limit 24 a vlastní návrat volantu. Tyto hodnoty se při opravě soupeřova
-poskakování neměnily; nové přepínače citlivosti nepřibyly.
+Režim easy v závodě používá nový 60Hz model s plným rejdem 24 i ve vysoké
+rychlosti; dřívější omezení na 12/8/6 už neztěžuje zatáčení. Pohyb myši v tomto
+režimu neotáčí volantem. Nabídky a jejich klávesové zkratky zůstávají původní.
+Volba `--controls classic` zachovává řazení A/Z, ale sama nevypíná nový model;
+pro srovnání s původní hrou slouží `--classic`.
 
 ```powershell
 # Plynulé zobrazení, původní ovládání (výchozí):
@@ -207,7 +236,7 @@ vstup mostu do krátkého původního výhledu už nepřepíná všechny útesy 
 Útesy se také neořezávají skokovým testem směru kamery.
 
 Rozšířené tabulky jsou oddělené od původních 15prvkových polí v herní paměti.
-Fyzika a výchozí původní řízení se nemění. Testy ověřují omezení vzdálenosti podle
+Samotné rozšíření dohledu nezasahuje do fyziky. Testy ověřují omezení vzdálenosti podle
 délky dat, posun přes šev panoramatu a spojitost profilu útesu při průjezdu hranicí
 segmentu. Testovací běhy Mulhollandu a dragu držely přibližně 60 FPS; vykreslení
 mezisnímku trvalo přibližně 1–1,6 ms. Vizuální doladění zbývá ověřit při hraní.

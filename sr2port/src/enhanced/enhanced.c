@@ -228,6 +228,8 @@ bool enh_compose(u32 *pixels, const u32 *palette, u16 page, int split)
     double alpha = current_time > previous_time
         ? SDL_clamp((double)(now - current_time) / (double)(current_time - previous_time), 0.0, 1.0) : 1.0;
     double pos = motion_value(previous.position, current.position, tangent0.position, tangent1.position, alpha);
+    double live_heading, live_x;
+    bool live_controls = enh_drive_view(&live_heading, &live_x);
     fraction = pos - floor(pos);
     memcpy(saved, mem, MEM_SIZE);
     VgaRegs real_vga = vga;
@@ -245,6 +247,10 @@ bool enh_compose(u32 *pixels, const u32 *palette, u16 page, int split)
     set_position(opponent, DS_opp_seg, DS_opp_seg_frac64);
     for (unsigned i = 0; i < NFIELDS; ++i) {
         rendered.value[i] = motion_value(previous.value[i], current.value[i], tangent0.value[i], tangent1.value[i], alpha);
+        /* The 60 Hz controller already has a smooth current state. Showing
+         * it through the old 9 Hz interpolation adds an unnecessary 110 ms. */
+        if (live_controls && fields[i] == DS_heading) rendered.value[i] = live_heading;
+        if (live_controls && fields[i] == DS_cam_x) rendered.value[i] = live_x;
         /* The normal road camera follows the same continuous height map as the
          * scenery and opponent. Keep authored fall/Aqueduct/flat-strip motion. */
         if (fields[i] == DS_cur_height && DSS(DS_road_mode) != 8 && !(DSW(DS_road_mode) & 6) &&

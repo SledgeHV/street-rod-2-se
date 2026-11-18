@@ -317,10 +317,11 @@ void race_phys_step(void)
         return;
     }
     bool shift = 0, brake = 0, steer = 0, gas = 0;
+    bool fast = enh_drive_active();
     int easy_direction = 0;
     bool easy = enh_easy_controls && DSB(DS_racing);
     bool robot = DSW(DS_demo) != 0 || DSW(DS_auto_drive) != 0;
-    if (DSW(DS_kbd_dir_lock) == 0 && DSW(DS_demo) == 0) {
+    if (!fast && DSW(DS_kbd_dir_lock) == 0 && DSW(DS_demo) == 0) {
         s16 kx = DSC(DS_kbd_dir_x);
         if (kx) { steer = 1; DSW(DS_cursor_x) = kx > 0 ? 1 : 0xFFFF; }
         s16 ky = DSC(DS_kbd_dir_y);
@@ -351,6 +352,7 @@ void race_phys_step(void)
         enh_input(&easy_direction, &gas, &brake, &shift_dir);
         if (!easy_direction && steer) easy_direction = DSS(DS_cursor_x) > 0 ? 1 : -1;
     }
+    if (fast) enh_drive_input(&easy_direction, &gas, &brake);
     if (shift_dir) shift = 1;
     if (robot) {                                                /* the computer drives */
         if ((s16)(PHS(p, PH_RPM_UP) * 4 + PHS(p, PH_RPM)) < 0x1644) {
@@ -386,7 +388,7 @@ void race_phys_step(void)
         if (w >= 0x26AC) { DSB(p + PH_RESULT) |= 5; race_ctrl_reset(); }
     }
     if (gas) {
-        PHW(p, PH_RPM) += PHW(p, PH_RPM_UP);
+        if (!fast) PHW(p, PH_RPM) += PHW(p, PH_RPM_UP);
         if (PHW(p, PH_AUTOMATIC) != 0 && PHS(p, PH_RPM) > 0x163A) PHW(p, PH_RPM) = 0x163A;
         if (!robot && PHS(p, PH_RPM) > 0x1644) {
             PHW(p, PH_RPM) = 0x1644;
@@ -394,7 +396,7 @@ void race_phys_step(void)
             DSW(DS_limiter_count)++;
             if (lim < DSS(DS_limiter_count)) { DSB(p + PH_RESULT) |= 5; race_ctrl_reset(); }
         }
-    } else if (PHS(p, PH_RPM) > 0x5DC || (PHS(p, PH_GEAR) > 0 && PHS(p, PH_RPM) > PHS(p, PH_RPM_DOWN))) {
+    } else if (!fast && (PHS(p, PH_RPM) > 0x5DC || (PHS(p, PH_GEAR) > 0 && PHS(p, PH_RPM) > PHS(p, PH_RPM_DOWN)))) {
         PHW(p, PH_RPM) -= PHW(p, PH_RPM_DOWN);
     }
     if (PHS(p, PH_RPM) < 0x1644) DSW(DS_limiter_count) = 0;
@@ -452,20 +454,24 @@ void race_phys_step(void)
         PHW(p, PH_RPM_UP) = DSW(crv + CRV_UP);
         PHW(p, PH_RPM_DOWN) = DSW(crv + CRV_DOWN);
     }
-    if (brake || (DSW(DS_on_shoulder) != 0 && PHS(p, PH_SPEED) > 8)) {
-        s16 v = (s16)(PHS(p, PH_SPEED) - ((PHS(p, PH_SPEED) >> 4) + 2));
-        if (v < 0) v = 0;
-        PHS(p, PH_SPEED) = v;
-        PHW(p, PH_RPM) = (u16)(v * PHS(p, PH_CUR_RATIO));
-        if (PHS(p, PH_RPM) < 0x5DC) PHW(p, PH_RPM) = 0x5DC;
-    } else if (PHW(p, PH_GEAR) == 0 && PHW(p, PH_SPEED) != 0) {
-        PHW(p, PH_SPEED)--;
-        PHW(p, PH_RPM) = (u16)(PHS(p, PH_SPEED) * 0x1E + 0x5DC);
-    } else if (PHW(p, PH_CUR_RATIO) != 0) {
-        PHS(p, PH_SPEED) = cdiv16(PHS(p, PH_RPM), PHS(p, PH_CUR_RATIO));
+    if (!fast) {
+        if (brake || (DSW(DS_on_shoulder) != 0 && PHS(p, PH_SPEED) > 8)) {
+            s16 v = (s16)(PHS(p, PH_SPEED) - ((PHS(p, PH_SPEED) >> 4) + 2));
+            if (v < 0) v = 0;
+            PHS(p, PH_SPEED) = v;
+            PHW(p, PH_RPM) = (u16)(v * PHS(p, PH_CUR_RATIO));
+            if (PHS(p, PH_RPM) < 0x5DC) PHW(p, PH_RPM) = 0x5DC;
+        } else if (PHW(p, PH_GEAR) == 0 && PHW(p, PH_SPEED) != 0) {
+            PHW(p, PH_SPEED)--;
+            PHW(p, PH_RPM) = (u16)(PHS(p, PH_SPEED) * 0x1E + 0x5DC);
+        } else if (PHW(p, PH_CUR_RATIO) != 0) {
+            PHS(p, PH_SPEED) = cdiv16(PHS(p, PH_RPM), PHS(p, PH_CUR_RATIO));
+        }
     }
     s16 ss = DSS(DS_cursor_x);
-    if (easy && !robot) {
+    if (fast) {
+        DSW(DS_cursor_x) = 0; /* high-rate controller owns wheel and steering */
+    } else if (easy && !robot) {
         if (DSS(DS_track_end) < DSS(DS_seg) || DSS(DS_ai_brake) > 0) easy_direction = 0;
         PHS(p, PH_WHEEL) = enh_steering(PHS(p, PH_WHEEL), easy_direction, PHS(p, PH_SPEED));
         PHS(p, PH_STEER_IN) = PHS(p, PH_WHEEL);
@@ -483,7 +489,7 @@ void race_phys_step(void)
     } else {
         PHW(p, PH_STEER_IN) = 0;
     }
-    if (!(easy && !robot) && abs16(PHS(p, PH_WHEEL)) > 0) {
+    if (!fast && !(easy && !robot) && abs16(PHS(p, PH_WHEEL)) > 0) {
         s16 wh = PHS(p, PH_WHEEL);
         PHS(p, PH_WHEEL) = (s16)(wh + (wh > 0 ? -((wh >> 2) + 1) : ((s16)(-wh) >> 2) + 1));
     }

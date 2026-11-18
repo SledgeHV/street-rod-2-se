@@ -361,6 +361,7 @@ s16 race_run(void)
     road_pages_init();
     enh_difficulty_reset();
     enh_begin();
+    enh_drive_begin();
     road_frame();
     drv_pal_normal();
     if (MODE == 4) {
@@ -396,15 +397,18 @@ s16 race_run(void)
             shown_recovery = recovery;
         }
         if (PHW(p, PH_GEAR_DIRTY) != 0) shifter_knob(ds_far(DS_page0_ptr), p);
-        if (abs16((s16)(PHS(p, PH_SPEED) - shown_speed)) > 1) shown_speed = needle_update(PHS(p, PH_SPEED), shown_speed, 0);
-        if (DSW(DS_has_clock) == 0 && abs16((s16)(PHS(p, PH_RPM) - shown_rpm)) > 1)
-            shown_rpm = needle_update(PHS(p, PH_RPM), shown_rpm, 1);
-        if (DSS(DS_wheel_shown) != w) {
-            wheel_draw(w, DSS(DS_wheel_shown), ds_far(DS_page0_ptr));
-            DSS(DS_wheel_shown) = w;
+        if (!enh_enabled) {
+            if (abs16((s16)(PHS(p, PH_SPEED) - shown_speed)) > 1) shown_speed = needle_update(PHS(p, PH_SPEED), shown_speed, 0);
+            if (DSW(DS_has_clock) == 0 && abs16((s16)(PHS(p, PH_RPM) - shown_rpm)) > 1)
+                shown_rpm = needle_update(PHS(p, PH_RPM), shown_rpm, 1);
+            if (DSS(DS_wheel_shown) != w) {
+                wheel_draw(w, DSS(DS_wheel_shown), ds_far(DS_page0_ptr));
+                DSS(DS_wheel_shown) = w;
+            }
         }
     }
     if (getenv("SR_TRACE")) fprintf(stderr, "trace: %ldms race_run end %d seg %d opp %d\n", (long)clock(), res, DSS(DS_seg), DSS(DS_opp_seg));   /* PORT: developer aid */
+    enh_drive_end();
     enh_end();
     arena_reset();
     DSW(DS_arena2_used) = 0;

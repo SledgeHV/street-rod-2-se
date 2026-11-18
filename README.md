@@ -26,8 +26,11 @@ The original DOS executable is read as game data; start the SE program instead.
 ## SE improvements
 
 - **60 FPS driving by default**, configurable from 30 to 240 FPS. Additional
-  frames reproject the road, camera and objects between simulation states;
-  the original physics and game timers do not run faster.
+  frames reproject the road, camera and objects between simulation states.
+- **Responsive 60 Hz player motion:** symmetric steering, immediate countersteer,
+  fractional lateral movement, acceleration and braking. Current steering and
+  lateral position bypass the old road interpolation delay; gauges update at
+  60 Hz. Race clocks, wear, shifting and opponent AI retain their original cadence.
 - **Continuous sprite scaling** from the most detailed original sprites,
   smoother opponent positioning, fractional projection and camera height.
 - **Longer draw distance:** up to 28 road segments instead of 14 on ordinary
@@ -69,12 +72,12 @@ Deliberate opponent ramming is disabled. **Opponent speed and acceleration are
 unchanged in Aqueduct.** The centre trough and course layout are unchanged.
 `--difficulty classic` restores the original race rules for both courses.
 
-**Original controls remain the default.** SE now ramps steering up in steps of 3
-instead of 2, reaching the unchanged limit of 24 in 8 rather than 12 physics
-steps. Steering return is unchanged; `--classic` retains the original ramp.
-Optional `--controls easy`
-enables WASD/arrow driving, Q/E shifting and steering assistance. Difficulty and
-controls are independent settings.
+**Original key bindings remain the default.** SE reaches the original steering
+limit of 24 in 0.6 seconds, reverses full lock in 0.4 seconds, and returns to
+centre in 0.2 seconds. Optional `--controls easy` enables WASD/arrow driving
+and Q/E shifting with the same steering range, including at high speed.
+`--classic` retains the original motion and steering. Difficulty and key bindings
+are independent settings.
 
 ## Build and run SE
 

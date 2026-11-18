@@ -19,6 +19,8 @@ static SDL_Gamepad *gamepad;
 static char *game_dir;
 
 static void (*tick_handler)(void);
+static void (*motion_handler)(double);
+static Uint64 motion_due_ns;
 static void (*kbd_handler)(u8);
 static void (*focus_lost_handler)(void);
 static bool (*frame_source)(u32 *);
@@ -102,6 +104,11 @@ void host_shutdown(void)
 }
 
 void host_set_tick_handler(void (*handler)(void)) { tick_handler = handler; }
+void host_set_motion_handler(void (*handler)(double))
+{
+    motion_handler = handler;
+    motion_due_ns = SDL_GetTicksNS() + SDL_NS_PER_SECOND / 60;
+}
 void host_set_kbd_handler(void (*handler)(u8)) { kbd_handler = handler; }
 void host_set_focus_lost_handler(void (*handler)(void)) { focus_lost_handler = handler; }
 
@@ -549,13 +556,20 @@ void host_pump(void)
     bool worked = false;
     Uint64 now = SDL_GetTicksNS();
     /* at most 0.5 s of catch-up per call */
-    int budget = (int)(PIT_HZ / 2 / pit_div) + 1;
-    while (tick_due_ns(ticks_run + 1) <= now && budget-- > 0) {
-        run_tick();                                 /* ticks_run++, audio up to the tick, handler */
+    int budget = (int)(PIT_HZ / 2 / pit_div) + (motion_handler ? 32 : 1);
+    while (budget-- > 0) {
+        Uint64 pit_due = tick_due_ns(ticks_run + 1);
+        bool motion_first = motion_handler && motion_due_ns <= pit_due;
+        if ((motion_first ? motion_due_ns : pit_due) > now) break;
+        if (motion_first) {
+            motion_due_ns += SDL_NS_PER_SECOND / 60;
+            motion_handler(1.0 / 60.0);
+        } else run_tick();                          /* original audio/timer timeline */
         worked = true;
     }
     if (budget < 0) {                               /* fell too far behind: resynchronise the clock */
         clock_start_ns = now - (tick_due_ns(ticks_run) - clock_start_ns);
+        motion_due_ns = now + SDL_NS_PER_SECOND / 60;
     }
 
     /* Absolute presentation deadlines avoid accumulating the sleep overshoot.

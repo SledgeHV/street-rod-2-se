@@ -1807,13 +1807,13 @@ static void road_nudge_heading(s16 dir)
 void road_step(void)
 {
     s16 si = PHS(PLAYER, PH_STEER_IN);
-    if (si != 0 && PHS(PLAYER, PH_SPEED) != 0 &&
+    if (!enh_drive_active() && si != 0 && PHS(PLAYER, PH_SPEED) != 0 &&
         abs16((s16)(DSS(DS_heading) - (s16)fw(DS_seg_yaw_ptr, 0) - si)) < 200)
         DSS(DS_heading) = sub16(DSS(DS_heading), add16((s16)(si >> 1), 1));
     if (!DSB(DS_racing)) DSS(DS_step_per_frame) = DSW(DS_slow_machine) ? 0x30 : 0x20;
     if (DSS(DS_step_per_frame) > 0) DSS(DS_start_light_pos) = add16(DSS(DS_start_light_pos), 4);
     road_frame();
-    if (!DSW(DS_demo) && !DSW(DS_auto_drive)) {
+    if (!enh_drive_active() && !DSW(DS_demo) && !DSW(DS_auto_drive)) {
         if (DSB(DS_tires_blown)) DSS(DS_cam_x) = add16(DSS(DS_cam_x), 0x19);
         else if (PHS(PLAYER, PH_SPEED) != 0) {
             s16 t = mul16(add16(q_shr(DSS(DS_step_per_frame), 3), PHS(PLAYER, PH_TIRE_SLIP)),
