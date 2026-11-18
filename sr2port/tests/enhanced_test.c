@@ -202,6 +202,107 @@ static void opponent_projection(void)
     assert(fabs(enh_opponent_depth(false) - 20.5) < 0.00001);
 }
 
+static int opponent_pixels(void)
+{
+    int n = 0;
+    for (int y = 18; y < 102; ++y)
+        for (int x = 0; x < 320; ++x) n += colour_at(x, y) != 0;
+    return n;
+}
+
+static void opponent_snapshot(void)
+{
+    /* Populate the compositor's fractional positions through its real API;
+     * changing DS fractions alone does not change an interpolated frame. */
+    u32 palette[16] = {0};
+    enh_replaying = false;
+    enh_begin(); enh_capture(); enh_presented(0x2000);
+    assert(enh_compose(pixels, palette, 0x2000, 100));
+    enh_end(); enh_replaying = true;
+}
+
+static void aqueduct_opponent(void)
+{
+    memset(mem, 0, sizeof mem);
+    enh_replaying = true;
+    DSS(DS_back_page) = 1; DSS(DS_road_mode) = 8;
+    DSS(DS_rot_cos) = 256;
+    DSS(DS_seg) = 20; DSS(DS_opp_seg) = 23;
+    FarPtr pic = far_make(0x6000, 0);
+    wr16(pic.seg, DESC_W, 64); wr16(pic.seg, DESC_H, 24); wr16(pic.seg, DESC_STRIDE, 8);
+    far_wr(pic.seg, DESC_PLANES, far_make(pic.seg, 100));
+    far_wr(pic.seg, DESC_MASK, far_make(pic.seg, 1000));
+    for (int i = 0; i < 192; ++i) {
+        wr8(pic.seg, (u16)(100 + i), 0xff);
+        wr8(pic.seg, (u16)(1000 + i), i % 8 == 0 ? 0xff : 0);
+    }
+    ds_far_wr(DS_rot_rear + 12, pic); ds_far_wr(DS_rot_front + 12, pic);
+    DSC(DS_anchor_x + 7 * 2 + 3) = DSC(DS_anchor_x + 7 * 9 + 3) = 32;
+    clip_set_view();
+    opponent_snapshot();
+    /* At zero bank, the affine path must match the established masked scaler. */
+    memset(planes, 0, sizeof planes);
+    assert(enh_opponent(4, 160, 80));
+    memcpy(original_planes, planes, sizeof planes);
+    memset(planes, 0, sizeof planes);
+    enh_bitmap(pic, 0, 0, 64, 24, 160 - 32 * 20.0 / 28, 80 - 24 * 20.0 / 28, 20.0 / 28, true);
+    assert(!memcmp(original_planes, planes, sizeof planes));
+
+    /* All old rear/front distance levels must produce the same pixels at a
+     * fixed physical distance, even across the >55-degree legacy fallback. */
+    static const int angles[] = {-80, -56, -55, -37, -13, 0, 13, 37, 55, 56, 80};
+    for (int mirror = 0; mirror < 2; ++mirror) {
+        DSS(DS_opp_seg) = mirror ? 17 : 23;
+        for (unsigned a = 0; a < sizeof angles / sizeof angles[0]; ++a) {
+            DSS(DS_opp_bank) = (s16)angles[a];
+            DSS(DS_opp_variant) = abs(angles[a]) >= 56 ? -1 : 3;
+            for (int view = mirror ? 9 : 2; view <= (mirror ? 12 : 8); ++view) {
+                memset(planes, 0, sizeof planes);
+                DSW(DS_opp_alongside) = view == 2;
+                assert(enh_opponent((s16)view, mirror ? 280 : 160, mirror ? 38 : 80));
+                assert(opponent_pixels() > 20);
+                if (view == (mirror ? 9 : 2)) memcpy(original_planes, planes, sizeof planes);
+                else assert(!memcmp(original_planes, planes, sizeof planes));
+                assert(DSS(DS_clip_xmin) == 0 && DSS(DS_clip_ymax) == 101);
+                if (mirror) {
+                    for (int y = 18; y < 102; ++y) for (int x = 0; x < 320; ++x)
+                        if (colour_at(x, y)) assert(x >= 242 && x <= 317 && y >= 22 && y <= 42);
+                }
+            }
+        }
+    }
+    /* Approach continuously within ONE original distance level, not just when
+     * its index changes. Raster sizes must be monotonic and have many steps. */
+    DSS(DS_opp_bank) = 0; DSS(DS_opp_seg) = 22;
+    int last = 100000, changes = 0;
+    for (int step = 0; step < 64; ++step) {
+        DSS(DS_opp_seg_frac64) = (s16)step;
+        opponent_snapshot();
+        memset(planes, 0, sizeof planes);
+        assert(enh_opponent(3, 160, 80));
+        int n = opponent_pixels();
+        assert(n > 0 && n <= last);
+        if (n != last) ++changes;
+        last = n;
+    }
+    assert(changes >= 10);
+    /* A quarter turn must really rotate the masked source about its tyre
+     * pivot, not just draw another unrotated distance level. */
+    DSS(DS_opp_seg_frac64) = 0; DSS(DS_opp_bank) = 90;
+    opponent_snapshot();
+    memset(planes, 0, sizeof planes);
+    assert(enh_opponent(4, 160, 60));
+    assert(opponent_pixels() == 56 * 24);
+    assert(colour_at(136, 28) == 1 && colour_at(159, 83) == 1);
+    assert(colour_at(135, 28) == 0 && colour_at(160, 83) == 0 && colour_at(140, 84) == 0);
+    DSW(DS_opp_contact) = 1;
+    assert(!enh_opponent(2, 160, 80));
+    DSW(DS_opp_contact) = 0;
+    enh_replaying = false;
+    assert(!enh_opponent(4, 160, 80));
+    puts("PASS: Aqueduct native sprite scale/rotation, every distance level and bank, near rear, mask, mirror clipping, classic/contact fallback");
+}
+
 static void landscape(void)
 {
     memset(mem, 0, sizeof mem);
@@ -310,7 +411,7 @@ static void smooth_motion(void)
 
 int main(void)
 {
-    isolation(); controls(); scaling(); opponent_projection(); landscape(); smooth_motion();
+    isolation(); controls(); scaling(); opponent_projection(); aqueduct_opponent(); landscape(); smooth_motion();
     printf("PASS: isolation/interpolation (%u replays), UI coverage, classic mode, input, steering, sprites, opponent, landscape distance bounds, horizon wrap, cliff continuity\n", renders);
     return 0;
 }

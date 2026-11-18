@@ -142,7 +142,7 @@ tak nepřekrývá dialogy. Palubní deska zůstává na původní frekvenci.
 Objekty ze `SR2_SHP` skutečně obsahují předpočítané velikosti. Enhanced používá
 nejdetailnější variantu a mění měřítko podle vzdálenosti. Totéž platí pro cedule,
 zadní/přední pohledy na soupeře a překážky v akvaduktu. Nejbližší boční pohledy
-na auto, kontaktní situace a některé varianty jeho náklonu nadále používají
+na auto a kontaktní situace nadále používají
 původní výběr spritu. Startér a startovní světla zachovávají původní animaci.
 Škálování používá ostré pixely, nikoli rozmazání; v rozlišení 320 × 200 jsou
 jednopixelové kroky stále přirozenou mezí.
@@ -153,12 +153,24 @@ na běžné silnici se také plynule vzorkuje výška a směr tratě mezi segmen
 Interpolovaná poloha soupeře uchovává i zlomek menší než původní 1/64 segmentu,
 takže auta jedoucí stejnou rychlostí nemění vzájemný odstup kvůli zaokrouhlení.
 V akvaduktu se stejná plynulá hloubka používá před otočením kotevního bodu spritu.
+Soupeř v akvaduktu se nyní škáluje a otáčí přímo z detailního nenakloněného
+obrázku v jednom průchodu. Platí to i pro náklony nad 55°, které dříve vracely
+vykreslování k původním velikostním stupňům. Kotevní bod uchovává desetinnou
+přesnost; přepnutí velikostního stupně ani přiblížení k zadnímu pohledu auta
+nemění způsob škálování. Stejná úprava platí i ve zpětném zrcátku.
 Boční pohledy a kolizní animace nadále používají původní zobrazení.
 
 Regresní testy kontrolují stálý odstup při stejné rychlosti a plynulý průjezd
 výškovými/směrovými segmenty před kamerou i ve zpětném zrcátku. Sestavení a běhy
 Mulhollandu i akvaduktu na dodaných datech prošly; vizuální výsledek je ještě
 potřeba posoudit při hraní.
+
+Oprava škálování v akvaduktu (2026-11-18): pixelové testy ověřují shodu mezi
+starými velikostními stupni při stejné vzdálenosti, 11 náklonů včetně ±80°,
+otáčení kolem spodní kotvy, průhlednost, zrcátko a plynulou změnu velikosti
+uvnitř jednoho původního stupně. Celá sada regresních testů prošla. Simulované
+závody Aqueduct SE i Classic na herních datech doběhly bez chyby procesu;
+SE při jízdě vykreslovala přibližně 60 FPS. Vizuální kontrola při hraní zbývá.
 
 ### Dohlednost, horizont a útesy
 

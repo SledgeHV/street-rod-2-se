@@ -152,26 +152,66 @@ void enh_opponent_projection(bool mirror, double *x, double *y)
     *y = enh_project_y(z, 2000.0 + enh_view_value(DS_aq_saved_floor_h), mirror ? -dy : dy, mirror);
 }
 
-bool enh_opponent(s16 view, s16 sx, s16 sy)
+/* Inverse-map one native sprite in a single pass. Rotating an already shrunk
+ * DOS distance level loses detail and reintroduces size jumps at each LOD. */
+static void bitmap_rotated(FarPtr pic, double x, double y, double pivot,
+                           double scale, double angle)
+{
+    int w = desc_w(pic), h = desc_h(pic);
+    if (angle == 0) {
+        enh_bitmap(pic, 0, 0, w, h, x - pivot * scale, y - h * scale, scale, true);
+        return;
+    }
+    double c = cos(angle * 0.017453292519943295), s = sin(angle * 0.017453292519943295);
+    double minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+    for (int i = 0; i < 4; ++i) {
+        double u = ((i & 1) ? w - pivot : -pivot) * scale;
+        double v = ((i & 2) ? 0 : -h) * scale;
+        double px = x + c * u + s * v, py = y + c * v - s * u;
+        minx = fmin(minx, px); maxx = fmax(maxx, px);
+        miny = fmin(miny, py); maxy = fmax(maxy, py);
+    }
+    int l = hi(hi(0, DSS(DS_clip_xmin)), (int)ceil(minx - 0.5));
+    int r = lo(lo(319, DSS(DS_clip_xmax)), (int)ceil(maxx - 0.5) - 1);
+    int t = hi(hi(18, DSS(DS_clip_ymin)), (int)ceil(miny - 0.5));
+    int b = lo(lo(101, DSS(DS_clip_ymax)), (int)ceil(maxy - 0.5) - 1);
+    FarPtr planes = desc_planes(pic), mask = desc_mask(pic);
+    int stride = desc_stride(pic), plane_bytes = stride * h;
+    for (int py = t; py <= b; ++py) for (int px = l; px <= r; ++px) {
+        double dx = (px + 0.5 - x) / scale, dy = (py + 0.5 - y) / scale;
+        int u = (int)floor(c * dx - s * dy + pivot);
+        int v = (int)floor(s * dx + c * dy + h);
+        if (u < 0 || u >= w || v < 0 || v >= h) continue;
+        int offset = v * stride + u / 8, bit = 7 - (u & 7);
+        if (!far_is_null(mask) && (rd8(mask.seg, (u16)(mask.off + offset)) & (1 << bit))) continue;
+        int colour = 0;
+        for (int p = 0; p < 4; ++p) {
+            u8 value = is_vram(planes.seg) ? ega_plane(p)[(u16)(vram_off(planes.seg, planes.off) + offset)]
+                : rd8(planes.seg, (u16)(planes.off + offset + p * plane_bytes));
+            colour |= ((value >> bit) & 1) << p;
+        }
+        pixel(px, py, colour);
+    }
+}
+
+bool enh_opponent(s16 view, double sx, double sy)
 {
     /* Alongside views have a different perspective. Keep their original artwork
      * and anchors; rear/front views share one source at every distance. */
-    if (!enh_replaying || view < 2 || (view == 2 && DSW(DS_opp_alongside)) ||
+    bool aqueduct = DSS(DS_road_mode) == 8;
+    if (!enh_replaying || view < 2 || (!aqueduct && view == 2 && DSW(DS_opp_alongside)) ||
         DSW(DS_opp_contact) || PHW(PLAYER, PH_RESULT) == 3) return false;
     bool mirror = view >= 9;
     FarPtr pic;
-    if (DSS(DS_road_mode) == 8) {
-        int variant = DSS(DS_opp_variant);
-        if (variant < 0 || variant > 6) return false; /* arbitrary rotated view */
-        pic = ds_far((u16)((mirror ? DS_rot_front : DS_rot_rear) + variant * 4));
-    } else pic = ds_far((u16)(DS_opp_sprites + (mirror ? 9 : 2) * 4));
+    if (aqueduct) pic = ds_far((u16)((mirror ? DS_rot_front : DS_rot_rear) + 3 * 4));
+    else pic = ds_far((u16)(DS_opp_sprites + (mirror ? 9 : 2) * 4));
     if (far_is_null(pic)) return false;
     double z = enh_opponent_depth(mirror);
     /* Fit world size to the game's own shrink ratios for this particular car. */
     static const double depths[] = {0, 0, 0, 24, 36, 52, 68, 84, 108, 0, 24, 40, 56};
     double sum = 0;
     int count = 0;
-    if (DSS(DS_road_mode) != 8 && desc_w(pic)) {
+    if (!aqueduct && desc_w(pic)) {
         for (int i = mirror ? 10 : 3; i <= (mirror ? 12 : 8); ++i) {
             FarPtr small = ds_far((u16)(DS_opp_sprites + i * 4));
             if (!far_is_null(small)) { sum += desc_w(small) * depths[i] / desc_w(pic); ++count; }
@@ -184,20 +224,21 @@ bool enh_opponent(s16 view, s16 sx, s16 sy)
     if (mirror) clip_set_mirror(); else clip_set_view();
     double w = desc_w(pic) * scale, h = desc_h(pic) * scale;
     double anchor_x = sx, anchor_y = sy;
-    if (DSS(DS_road_mode) != 8) {
+    if (!aqueduct) {
         enh_opponent_projection(mirror, &anchor_x, &anchor_y);
         if (view == 2 || view == 3) anchor_y = fmin(anchor_y, 100.0);
     }
     double x = anchor_x - w / 2, y = anchor_y - h;
-    if (DSS(DS_road_mode) == 8) {
-        int v = DSS(DS_opp_variant), native = mirror ? 9 : 2;
-        /* Undo the discrete sprite's anchor and apply the native one's at its continuous size. */
-        x = sx + DSC((u16)(DS_anchor_x + 7 * view + v))
-            - DSC((u16)(DS_anchor_x + 7 * native + v)) * scale + DSS(DS_g_px_shift);
-        y = sy - DSC((u16)(DS_anchor_y + 7 * view + v))
-            + DSC((u16)(DS_anchor_y + 7 * native + v)) * scale - h;
-    }
-    enh_bitmap(pic, 0, 0, desc_w(pic), desc_h(pic), x, y, scale, true);
+    if (aqueduct) {
+        /* sx/sy arrive before the legacy integer rotation and LOD anchors.
+         * Keep the wheel contact pivot fixed while scaling/rotating the car. */
+        double c = DSS(DS_rot_cos) / 256.0, s = DSS(DS_rot_sin) / 256.0;
+        double dx = sx - DSS(DS_rot_cx), dy = sy - DSS(DS_rot_cy);
+        x = dx * c + dy * s + DSS(DS_rot_cx) + DSS(DS_g_px_shift);
+        y = dy * c - dx * s + DSS(DS_rot_cy);
+        double pivot = DSC((u16)(DS_anchor_x + 7 * (mirror ? 9 : 2) + 3));
+        bitmap_rotated(pic, x, y, pivot, scale, DSS(DS_opp_bank));
+    } else enh_bitmap(pic, 0, 0, desc_w(pic), desc_h(pic), x, y, scale, true);
     DSS(DS_clip_xmin) = xmin; DSS(DS_clip_xmax) = xmax;
     DSS(DS_clip_ymin) = ymin; DSS(DS_clip_ymax) = ymax;
     return true;

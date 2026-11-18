@@ -218,7 +218,7 @@ void opponent_draw(void)
     s16 sx, sy;
     /* Use the same continuous depth for the anchor and sprite size. In the
      * Aqueduct this anchor is also rotated about the road's bank centre. */
-    bool smooth = enh_replaying && s >= 2 && !(s == 2 && DSW(DS_opp_alongside))
+    bool smooth = enh_replaying && s >= 2 && !(MODE != 8 && s == 2 && DSW(DS_opp_alongside))
         && !DSW(DS_opp_contact) && res != 3;
     if (s < 9) {
         z = (s16)(abs16(z) + 4);
@@ -234,6 +234,16 @@ void opponent_draw(void)
     }
     s16 row = (s16)((z + 1) >> 3);
     if ((s == 2 || s == 3) && sy > 100) sy = 100;
+    if (MODE == 8 && smooth) {
+        bool mirror = s >= 9;
+        double depth = enh_opponent_depth(mirror);
+        double x = enh_project_x(depth, enh_view_value(DS_opp_lat), mirror ? 10.0 - dx : dx, mirror);
+        double y = enh_project_y(depth, wy, mirror ? -dy : dy, mirror);
+        /* The same near-car clamp applies to every rear distance level, so
+         * crossing an old LOD threshold cannot move its contact point. */
+        if (!mirror && y > 100) y = 100;
+        if (enh_opponent(s, x, y)) return;
+    }
     Rect r;
     r.w = (s16)desc_w(pic);
     r.h = (s16)desc_h(pic);
@@ -244,7 +254,7 @@ void opponent_draw(void)
         sx = (s16)(sx - adx);
         sy = (s16)(sy + ady);
     }
-    if (enh_opponent(s, sx, sy)) return;
+    if (MODE != 8 && enh_opponent(s, sx, sy)) return;
     DSS(DS_opp_last_sx) = sx;
     r.sx = 0; r.sy = 0;
     if (s == 0) {

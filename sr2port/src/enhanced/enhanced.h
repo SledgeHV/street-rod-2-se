@@ -45,7 +45,8 @@ bool enh_shape(double x, double y, int depth, s16 side, FarPtr set);
 bool enh_aq_shape(s16 x, s16 y, int row, FarPtr set);
 void enh_bitmap(FarPtr pic, int sx, int sy, int w, int h,
                 double x, double y, double scale, bool masked);
-bool enh_opponent(s16 view, s16 sx, s16 sy);
+/* Aqueduct anchors are unrotated; the enhanced renderer applies bank itself. */
+bool enh_opponent(s16 view, double sx, double sy);
 
 /* Race-only WASD / Q/E input; the classic menus retain their hotkeys. */
 bool enh_key(u8 sc);

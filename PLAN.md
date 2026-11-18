@@ -23,8 +23,11 @@ remove it when it is done; subtasks marked `U<n> pending` are added automaticall
 |---|---|---|---|
 | SE steering | Try the faster steering ramp using Play Enhanced.cmd | User-requested 3-point ramp, original 24-point limit | One race |
 | SE Aqueduct | Try light wall contacts and continued racing with Play Enhanced.cmd | Forgiving walls and short bounce; opponent pace retained | One race |
+| SE opponent scaling | Watch opponent approach/recede and bank in Aqueduct, including the mirror | Continuous native-sprite scaling and rotation | One race |
 
 ## Status
+
+- **SE opponent scaling (2026-11-18):** Aqueduct rear/front sprites scale and rotate from the native bitmap at every bank angle; fractional contact anchor retained, including near rear views. Full regression suite and SE/Classic Aqueduct runs pass (SE ~60 FPS). Pixel tests cover distance levels, steep banks, pivot, mirror clipping and contact/classic fallback. Local visual playtest pending.
 
 - **SE Aqueduct (2026-11-18):** easy wall scrapes slow/recentre the car, bounce uses two normal frames without extra opponent movement, deliberate ramming disabled. Opponent speed/acceleration and obstacles retained. Regression tests pass; local playtest pending.
 
