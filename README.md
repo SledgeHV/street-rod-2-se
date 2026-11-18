@@ -57,7 +57,10 @@ The default `--difficulty easy` changes Mulholland only:
 - The grey slow zone automatically brakes to at most 60 mph instead of causing
   a crash for entering too fast.
 
-**Original steering and controls remain the default.** Optional `--controls easy`
+**Original controls remain the default.** SE now ramps steering up in steps of 3
+instead of 2, reaching the unchanged limit of 24 in 8 rather than 12 physics
+steps. Steering return is unchanged; `--classic` retains the original ramp.
+Optional `--controls easy`
 enables WASD/arrow driving, Q/E shifting and steering assistance. Difficulty and
 controls are independent settings.
 

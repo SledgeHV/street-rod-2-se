@@ -13,13 +13,15 @@ Oba soubory použijí `game_original`, případně `Game`. Program rozpozná `SR
 i `SR2.EXE`. Připravená Windows verze je `build/sr2-enhanced.exe`; vedle ní musí
 zůstat `SDL3.dll`. Uložené hry vznikají v pracovním adresáři, nikoli v `game_original`.
 
-Výchozí je původní ovládání hry (`--controls classic`), včetně původní odezvy a
-rozsahu zatáčení. Platí i při přímém spuštění EXE. Režim easy je pouze volitelný,
+Výchozí je původní ovládání hry (`--controls classic`) s rychlejším náběhem
+zatáčení v SE: krok 3 místo 2, maximum stále 24. Držená šipka dosáhne maxima
+za 8 místo 12 fyzikálních kroků. Návrat volantu se nemění; `--classic` zachovává
+původní krok 2. Platí i při přímém spuštění EXE. Režim easy je pouze volitelný,
 zapíná se přepínačem `--controls easy`.
 
 ## Obtížnost Mulhollandu
 
-Výchozí `--difficulty easy` je nezávislé na ovládání: zatáčení zůstává původní.
+Výchozí `--difficulty easy` je nezávislé na nastavení ovládání.
 Nové úlevy se týkají pouze závodu Mulholland; drag, akvadukt a přejezdy městem
 si ponechávají dosavadní pravidla. `--difficulty classic` vypne tyto úlevy při
 zachování plynulého obrazu. `--classic` je vypne společně s obrazovými vylepšeními.

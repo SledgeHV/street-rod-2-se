@@ -475,7 +475,8 @@ void race_phys_step(void)
         s16 di = abs16(PHS(p, PH_WHEEL));
         if ((s16)(abs16(ss) + di) == abs16((s16)(PHS(p, PH_WHEEL) + ss)) && si < di)
             PHW(p, PH_STEER_IN) = PHW(p, PH_WHEEL);
-        PHW(p, PH_STEER_IN) += (u16)(ss * 2);
+        /* SE: reach the original steering limit sooner; --classic keeps the DOS ramp. */
+        PHW(p, PH_STEER_IN) += (u16)(ss * (enh_enabled ? 3 : 2));
         if (abs16(PHS(p, PH_STEER_IN)) > 0x18) PHS(p, PH_STEER_IN) = PHS(p, PH_STEER_IN) > 0 ? 0x18 : -0x18;
         DSW(DS_cursor_x) = 0;
         PHW(p, PH_WHEEL) = PHW(p, PH_STEER_IN);

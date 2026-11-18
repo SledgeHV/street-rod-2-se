@@ -240,9 +240,39 @@ static void course_height(void)
     puts("PASS: Mulholland 90% height, stable rebuild/load, original classic profile, unchanged entry/other roads/cliffs/yaw");
 }
 
+static void steering_ramp(void)
+{
+    for (int enhanced = 0; enhanced <= 1; ++enhanced) {
+        for (int direction = -1; direction <= 1; direction += 2) {
+            fixture();
+            enh_enabled = enhanced != 0;
+            DSB(DS_bios_ticks) = 1;
+            DSC(DS_kbd_dir_x) = (s8)direction;
+            int reached_limit = 0;
+            for (int tick = 1; tick <= 24; ++tick) {
+                race_phys_step();
+                int input = PHS(PLAYER, PH_STEER_IN) * direction;
+                assert(input > 0 && input <= 24);
+                if (input == 24 && !reached_limit) reached_limit = tick;
+                if (reached_limit) assert(input == 24);
+                assert(!PHS(PLAYER, PH_RESULT));
+            }
+            assert(reached_limit == (enhanced ? 8 : 12));
+            DSC(DS_kbd_dir_x) = 0;
+            race_phys_step();
+            assert(PHS(PLAYER, PH_STEER_IN) == 0);
+            for (int tick = 0; tick < 12; ++tick) race_phys_step();
+            assert(PHS(PLAYER, PH_WHEEL) == 0);
+        }
+    }
+    enh_enabled = true;
+    puts("PASS: held left/right reach limit 24 in 8 SE / 12 Classic steps; hold stays bounded and release centres");
+}
+
 int main(void)
 {
     contacts(); recovery(); opponent(); slow_strip(); scenery_tests(); course_height();
+    steering_ramp();
     puts("PASS: light/hard contacts, classic collisions, cliff/bridge recovery, 3-second penalty with moving opponent, AI limits/curves/no ramming, race scope, original controls");
     return 0;
 }

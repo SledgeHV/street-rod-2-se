@@ -21,8 +21,11 @@ remove it when it is done; subtasks marked `U<n> pending` are added automaticall
 
 | Task | What to do | For | Time |
 |---|---|---|---|
+| SE steering | Try the faster steering ramp using Play Enhanced.cmd | User-requested 3-point ramp, original 24-point limit | One race |
 
 ## Status
+
+- **SE steering (2026-11-18):** trial change: default SE steering increments 3 instead of 2, original limit/return retained; `--classic` keeps increment 2. Local playtest pending.
 
 - **SE fork (2026-11-17):** Windows v1.0.0 package prepared and validated with a clean build, regression tests and extracted-package SE/Classic startup checks. Release instructions and packaging script: `sr2port/dist/se/`, `sr2port/tools/package_se.py`. Publication: https://github.com/SledgeHV/street-rod-2-se/releases/tag/v1.0.0. Upstream status below is retained as historical context.
 
